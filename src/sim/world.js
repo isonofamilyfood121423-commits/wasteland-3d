@@ -7,6 +7,10 @@ import { clearTask, planPath, replan, stopPerson } from './move.js';
 import { emptyEquip } from './equip.js';
 import { newFight, stepFight, stepCombatTask, followCarrier, dropCarried, fleeFromFights } from './combat.js';
 import { stepSquads, makeEnemy } from './squads.js';
+import { bindWorld, stepFactions, onDeath, onTreatOther } from './factions.js';
+import { ensureTownObstacles, allTowns } from './towns.js';
+import { ROLES, TRADE } from '../data/world.js';
+import { QUALITY_MUL } from '../data/items.js';
 import {
   pickRace, initHealth, mobility, bodyTick, gainXp, loadRatio, addItem, partsNeedingAid, findAidItem,
   treatPart, treatHours, armsUsable, totalBleed, damage as hurt,
@@ -118,7 +122,8 @@ export function createWorld(seed) {
     if (RACES[p.race].eats) addItem(p, 'hardtack', 2);
     w.people.push(p);
   }
-  addLog(w, 'あなたの一団は廃墟のそばで目を覚ました。');
+  populateTowns(w);
+  addLog(w, 'あなたの一団は廃墟のそばで目を覚ました。北東の方角に、町の煙が見える。');
   return w;
 }
 
@@ -129,6 +134,65 @@ export function attachRuntime(w) {
   w.events = w.events || [];
   w.squads = w.squads || [];
   w.time = w.time || 0;
+  w.onDeathFn = (p) => onDeath(w, p);
+  w.onTreatFn = (m, pt) => onTreatOther(w, m, pt);
+  ensureTownObstacles();
+  bindWorld(w);
+}
+
+// ======================= 町の人々 =======================
+function roleDef(role, faction) { return role === 'guard' ? ROLES.guard[faction] : ROLES[role]; }
+
+export function makeTownPerson(w, town, role, x, z) {
+  const def = roleDef(role, town.faction);
+  const r = w.rng;
+  const p = makePerson(w, 'npc', x, z, town.faction);
+  p.role = role; p.town = town.id; p.title = def.label;
+  for (const k of Object.keys(p.skills)) p.skills[k].lv = Math.max(1, Math.round(r.range(def.skill[0], def.skill[1]) * (0.6 + r.next() * 0.6)));
+  p.equip = emptyEquip();
+  for (const [slot, list] of Object.entries(def.gear)) { const id = r.pick(list); if (id) p.equip[slot] = { id, q: Math.round(r.range(def.q[0], def.q[1])) }; }
+  p.equipVer = 1;
+  p.look.hat = false; p.look.pack = false;
+  // 派閥の差し色（衛兵・役人は派閥色の服）
+  const acc = { merchant: 0x3f6f8f, holy: 0xd8d0b8, bandit: 0x7e3a2c, eater: 0x4e5e34 }[town.faction];
+  p.look.accent = role === 'guard' || role === 'police' || town.faction === 'bandit' || town.faction === 'eater' ? acc : null;
+  p.maxSpeed = role === 'guard' ? 2.8 : 1.5 + r.next() * 0.4;
+  p.money = Math.round(r.range(5, 40));
+  if (def.bounty) p.bounty = Math.round(r.range(def.bounty[0], def.bounty[1]) / 10) * 10;
+  if (role === 'recruit') {
+    p.hirePrice = r.next() < 0.3 ? 0 : Math.round(r.range(TRADE.recruitPrice[0], TRADE.recruitPrice[1]) * (0.5 + Object.values(p.skills).reduce((a, s) => a + s.lv, 0) / 200) / 50) * 50;
+  }
+  return p;
+}
+
+export function populateTowns(w) {
+  for (const L of allTowns()) {
+    const t = L.town;
+    const add = (role, x, z) => { if (!walkable(x, z)) { x = t.x + (w.rng.next() - 0.5) * 6; z = t.z + (w.rng.next() - 0.5) * 6; } const p = makeTownPerson(w, t, role, x, z); w.people.push(p); return p; };
+    // 店主・酒場・役人は入口の前に立つ
+    for (const b of L.buildings.filter((bb) => bb.type === 'shop')) {
+      const role = b.shop === 'bar' ? 'bartender' : b.shop === 'police' ? 'police' : 'shopkeeper';
+      const p = add(role, b.door.x, b.door.z);
+      p.shop = b.shop; p.station = { x: b.door.x, z: b.door.z };
+      p.heading = Math.atan2(t.x - b.door.x, t.z - b.door.z);
+      if (b.shop === 'bar') {
+        const n = 1 + Math.floor(w.rng.next() * 3);
+        for (let i = 0; i < n; i++) { const q = add('recruit', b.door.x + (i - 1) * 1.6, b.door.z + 2.4); q.station = { x: q.x, z: q.z }; }
+      }
+    }
+    for (let i = 0; i < t.guards; i++) {
+      const pt = L.patrol[i % L.patrol.length];
+      const g = add('guard', pt.x, pt.z);
+      g.patrolIdx = i % L.patrol.length;
+      // 半分は持ち場（広場）に立つ
+      if (i % 2 === 1) g.station = { x: pt.x, z: pt.z };
+    }
+    for (let i = 0; i < t.folk; i++) {
+      const a = w.rng.next() * Math.PI * 2, rr = w.rng.next() * t.r * 0.6;
+      add('folk', t.x + Math.cos(a) * rr, t.z + Math.sin(a) * rr);
+    }
+    if (t.boss) { const b = add('boss', t.x, t.z); b.station = { x: t.x, z: t.z }; b.title = ROLES.boss.label; }
+  }
 }
 
 export function partyOf(w) { return w.people.filter((p) => p.kind === 'party'); }
@@ -202,6 +266,7 @@ export function stepWorld(w, dt) {
   for (let s = 0; s < sub; s++) {
     for (const p of w.people) {
       bodyTick(w, p, hours);
+      if (p.far) continue; // 遠くの人は動かさない（簡易シミュレーション）
       if (p.carriedBy) { followCarrier(w, p); continue; }
       if (p.carrying && p.state !== 'ok') dropCarried(w, p);
       if (p.state !== 'ok') { if (p.fight) p.fight.act = null; p.speed = 0; continue; }
@@ -211,9 +276,11 @@ export function stepWorld(w, dt) {
       if (fight === 'hold') { p.speed = Math.max(0, p.speed - h * 8); p.moveMode = 'run'; continue; }
       stepPerson(w, p, h);
     }
-    separate(w.people, h);
+    separate(w.near || w.people, h);
   }
   stepSquads(w, makePerson, gdt);
+  w.lodTimer = (w.lodTimer || 0) - gdt;
+  if (w.lodTimer <= 0) { w.lodTimer = 1; updateLod(w); stepFactions(w); }
   w.fleeTimer = (w.fleeTimer || 0) - gdt;
   if (w.fleeTimer <= 0) { w.fleeTimer = 1; for (const p of w.people) fleeFromFights(w, p); }
   // 仲間が自動で応急処置（出血している仲間が近くにいて、手が空いているとき）
@@ -260,6 +327,7 @@ function stepTask(w, p, hours) {
     if (t.t >= treatHours(p, item.id)) {
       t.t = 0;
       const label = treatPart(w, p, pt, need[0].id, item.id, item.owner);
+      if (label) w.onTreatFn?.(p, pt);
       if (label) addLog(w, `${p.name}が${pt === p ? '自分' : pt.name}の${label}を手当てした（${ITEMS[item.id].label}）。`, true);
     }
   }
@@ -311,7 +379,9 @@ function stepPerson(w, p, dt) {
       p.stuck = moved > 0 && p.speed > 0.15 ? 0 : p.stuck + dt;
       if (p.stuck > 1.5 && p.goal) { p.stuck = 0; replan(w, p); }
     }
-  } else if (p.kind === 'drifter' && !p.task && !p.fight?.target) {
+  } else if (p.role && !p.task && !p.fight?.target && roleIdle(w, p, dt, mob)) {
+    // 町の人の決まった動き（roleIdle が処理済み）
+  } else if ((p.kind === 'drifter' || p.role === 'folk') && !p.task && !p.fight?.target) {
     if (p.idle > 0) {
       p.idle -= dt;
       p.speed = Math.max(0, p.speed - dt * 3);
@@ -335,12 +405,53 @@ function stepPerson(w, p, dt) {
     if (p.speed > 2.2) gainXp(w, p, 'agi', moved * GROWTH.agiXpPerMeter);
     const lr = loadRatio(p);
     if (lr > GROWTH.strLoadRatio) gainXp(w, p, 'str', moved * GROWTH.strXpPerMeter * lr);
+    // 忍び歩き：敵の近くほど隠密が伸びる
+    if (p.sneak) gainXp(w, p, 'stealth', moved * (w.people.some((o) => o.squadHunting === false && o.faction === 'bandit' && Math.abs(o.x - p.x) < 50 && Math.abs(o.z - p.z) < 50) ? 0.5 : 0.15));
   }
 }
 
+// 一団とカメラから遠い人は簡易シミュレーション（移動・戦闘・押し合いを省く）
+function updateLod(w) {
+  const anchors = w.people.filter((p) => p.kind === 'party' && p.state !== 'dead').map((p) => [p.x, p.z]);
+  if (w.focus) anchors.push([w.focus.x, w.focus.z]);
+  const R = 200;
+  w.near = [];
+  for (const p of w.people) {
+    const far = p.kind !== 'party' && !p.squadHunting && !p.carriedBy && !anchors.some(([x, z]) => Math.abs(p.x - x) < R && Math.abs(p.z - z) < R);
+    if (far && !p.far) { p.path = []; p.goal = null; p.speed = 0; }
+    p.far = far;
+    if (!far) w.near.push(p);
+  }
+}
+
+// 町の人：持ち場に戻る・巡回する。処理したら true
+function roleIdle(w, p, dt, mob) {
+  if (p.role === 'folk') return false;
+  const home = p.station;
+  if (home) {
+    const d = Math.hypot(home.x - p.x, home.z - p.z);
+    if (d > 1.2) { if (!p.goal) planPath(w, p, home.x, home.z, true); return false; }
+    p.speed = Math.max(0, p.speed - dt * 4);
+    return true;
+  }
+  if (p.role === 'guard') {
+    const L = allTowns().find((t) => t.town.id === p.town);
+    if (!L) return true;
+    p.idle = (p.idle || 0) - dt;
+    if (p.idle > 0) { p.speed = Math.max(0, p.speed - dt * 4); return true; }
+    p.patrolIdx = ((p.patrolIdx || 0) + 1) % L.patrol.length;
+    const pt = L.patrol[p.patrolIdx];
+    planPath(w, p, pt.x, pt.z, true);
+    p.idle = 6 + w.rng.next() * 10;
+    return false;
+  }
+  return true;
+}
+
 function pickWander(w, p) {
+  const rad = p.role === 'folk' ? 18 : CROWD.wanderRadius;
   for (let i = 0; i < 6; i++) {
-    const a = w.rng.next() * 6.28, r = 6 + w.rng.next() * CROWD.wanderRadius;
+    const a = w.rng.next() * 6.28, r = 4 + w.rng.next() * rad;
     const x = p.homeX + Math.cos(a) * r, z = p.homeZ + Math.sin(a) * r;
     if (walkable(x, z)) { p.tx = x; p.tz = z; return; }
   }

@@ -114,7 +114,7 @@ export const BODY = {
 
 // ---- Phase 0 群衆テスト ----
 export const CROWD = {
-  count: 50,
+  count: 30, // Phase 4 で町の住人が増えたため減らした
   spawnRadius: 55,
   wanderRadius: 45,
   walkSpeed: [1.1, 1.9],
@@ -148,7 +148,7 @@ export const INPUT = {
 
 // ---- セーブ ----
 export const SAVE = {
-  version: 3,         // 2: 体・能力・所持品（Phase 2） 3: 陣営・装備・戦闘（Phase 3）
+  version: 4,         // 2: 体・能力・所持品 3: 陣営・装備・戦闘 4: 町・派閥（Phase 4）
   slots: 3,
   autosaveInterval: 60, // 秒（現実時間）
 };

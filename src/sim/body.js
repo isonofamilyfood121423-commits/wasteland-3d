@@ -74,6 +74,7 @@ export function mobility(p) {
   const over = loadRatio(p);
   if (over > 1) mul *= Math.max(0.35, 1 - (over - 1) * 0.8);
   if (p.carrying) mul *= 0.62; // 人を担いでいると遅い
+  if (p.sneak) mul *= 0.45;    // 忍び歩き
   if (L && R) return { mode: 'run', mul };
   if (L || R) return { mode: 'limp', mul: mul * H.limpMul };
   return { mode: 'crawl', mul: 1 };
@@ -179,6 +180,7 @@ function die(w, p, cause) {
   p.path = []; p.goal = null; p.task = null; p.resting = false;
   for (const part of PARTS) p.body[part.id].bleed = 0;
   if (p.kind === 'party') w.addLogFn?.(`${p.name}が死亡した（${cause}）。`);
+  w.onDeathFn?.(p);
 }
 
 // ======================= 時間経過 =======================

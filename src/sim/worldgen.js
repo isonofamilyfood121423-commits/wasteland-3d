@@ -1,7 +1,11 @@
 // チャンクごとの配置物（岩・草・遺構）を決定論的に生成する（ロジック層）
 // 後のフェーズで当たり判定・経路探索・遺跡探索がこのデータを参照する
 import { hash2, mulberry32 } from '../core/rng.js';
-import { heightAt, slopeAt, regionAt } from './terrain.js';
+import { heightAt, slopeAt, regionAt, roadDist } from './terrain.js';
+import { TOWNS } from '../data/world.js';
+
+// 町の中と道の上には岩や廃墟を置かない
+const clearSpot = (x, z, pad = 12) => roadDist(x, z) > 6 && !TOWNS.some((t) => Math.hypot(x - t.x, z - t.z) < t.r + pad);
 import { WORLD } from '../data/config.js';
 
 const solidCache = new Map();
@@ -25,13 +29,13 @@ export function chunkSolids(cx, cz) {
     const x = ox + rnd() * S, z = oz + rnd() * S;
     const sl = slopeAt(x, z);
     const roll = rnd();
-    if (roll > 0.08 + sl * 0.35) continue;
+    if (roll > 0.08 + sl * 0.35 || !clearSpot(x, z)) continue;
     const s = 2.2 + rnd() * 3;
     bigRocks.push({ x, z, y: heightAt(x, z) - s * 0.25, s, sy: 0.5 + rnd() * 0.6, ry: rnd() * 6.28, tilt: (rnd() - 0.5) * 0.4, tone: rnd(), foot: { kind: 'circle', x, z, r: s * 0.85 } });
   }
 
   // 小規模な廃墟（約12%のチャンク）
-  if (isRuinChunk(cx, cz)) {
+  if (isRuinChunk(cx, cz) && clearSpot(ox + S / 2, oz + S / 2, 50)) {
     const px = ox + S * (0.3 + rnd() * 0.4), pz = oz + S * (0.3 + rnd() * 0.4);
     const baseY = heightAt(px, pz);
     const rot = rnd() * 6.28;
@@ -72,7 +76,7 @@ function chunkDecor(cx, cz, density) {
   for (let i = 0; i < density.rockPerChunk; i++) {
     const x = ox + rnd() * S, z = oz + rnd() * S;
     const sl = slopeAt(x, z);
-    if (rnd() > 0.35 + sl * 0.8) continue;
+    if (rnd() > 0.35 + sl * 0.8 || !clearSpot(x, z, 2)) continue;
     const s = 0.3 + rnd() * 0.9;
     rocks.push({ x, z, y: heightAt(x, z) - s * 0.25, s, sy: 0.5 + rnd() * 0.7, ry: rnd() * 6.28, tilt: (rnd() - 0.5) * 0.5, tone: rnd() });
   }
@@ -117,7 +121,7 @@ export function isRuinChunk(cx, cz) { return hash2(cx, cz, WORLD.seed + 7) < 0.1
 export function findSpawn() {
   let best = null, bd = Infinity;
   for (let cz = -8; cz <= 8; cz++) for (let cx = -8; cx <= 8; cx++) {
-    if (!isRuinChunk(cx, cz)) continue;
+    if (!isRuinChunk(cx, cz) || !clearSpot((cx + 0.5) * WORLD.chunkSize, (cz + 0.5) * WORLD.chunkSize, 50)) continue;
     const d = cx * cx + cz * cz;
     if (d < bd) { bd = d; best = { cx, cz }; }
   }

@@ -1,7 +1,8 @@
 // 地形チャンク・岩・草・遺構の描画（ロジック層の heightAt / chunkProps を表示するだけ）
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { heightAt, regionAt } from '../sim/terrain.js';
+import { heightAt, regionAt, roadDist, townAt } from '../sim/terrain.js';
+import { ROAD } from '../data/world.js';
 import { chunkProps, chunkKey, landmarks } from '../sim/worldgen.js';
 import { hash2, mulberry32 } from '../core/rng.js';
 import { WORLD, PALETTE } from '../data/config.js';
@@ -26,6 +27,10 @@ function groundColor(out, x, z, h, ny, jitter) {
     tmp2.copy(COL.rock).lerp(COL.rustD, reg.rust * 0.7).lerp(COL.rockD, jitter * 0.6);
     out.lerp(tmp2, cliff);
   }
+  // 道と町の地面は踏み固められた色
+  const rd = roadDist(x, z);
+  if (rd < ROAD.width + 1.5) out.lerp(tmp2.setHex(0x8f7a5a), Math.min(1, (ROAD.width + 1.5 - rd) / 2) * 0.75);
+  else if (townAt(x, z)) out.lerp(tmp2.setHex(0xa48c68), 0.5);
   // 面ごとのわずかなムラ（フラットシェーディングの面を際立たせる）
   const v = 0.93 + jitter * 0.12;
   out.r *= v; out.g *= v; out.b *= v;

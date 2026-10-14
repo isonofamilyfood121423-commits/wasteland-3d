@@ -20,11 +20,8 @@ export const COMBAT = {
 
 // ---- 敵の一団 ----
 // 仕様判断：Phase 3 の敵は盗賊団のみ。派閥・町は Phase 4 で追加する
-export const FACTIONS = {
-  player: { label: '一団' },
-  drifter: { label: '流れ者' },
-  bandit: { label: '砂鼠団', color: 0xa3392b, desc: '荒野をうろつく盗賊団。弱った旅人を襲い、食料と金を奪っていく。' },
-};
+// 派閥の定義は world.js へ移動（Phase 4）
+export { FACTIONS } from './world.js';
 
 // 敵の種類：skill は能力の範囲、gear は装備の候補（null＝なし）、q は品質の範囲
 export const ENEMY_TYPES = {

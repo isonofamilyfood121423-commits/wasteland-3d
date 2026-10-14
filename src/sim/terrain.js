@@ -1,6 +1,7 @@
 // 地形の高さ・地域をシード値から決定論的に求める（ロジック層。描画は参照するだけ）
 import { makeSimplex, smoothstep, lerp, clamp } from '../core/rng.js';
 import { WORLD } from '../data/config.js';
+import { TOWNS, ROADS, ROAD } from '../data/world.js';
 
 const nA = makeSimplex(WORLD.seed);
 const nB = makeSimplex(WORLD.seed + 101);
@@ -24,7 +25,7 @@ export function regionAt(x, z) {
   return { rust, ash, sand: 1 - Math.max(rust, ash) };
 }
 
-export function heightAt(x, z) {
+function rawHeight(x, z) {
   const reg = fbm(nA, x / 900, z / 900, 3);           // 広域の起伏
   const hills = fbm(nB, x / 170, z / 170, 3) * 13;      // 丘
   let h0 = reg * 30 + hills;
@@ -47,6 +48,51 @@ export function heightAt(x, z) {
   h += d * d * 2.2 * ter.sand;
 
   return clamp(h, -30, WORLD.maxHeight);
+}
+
+// なめらかな起伏だけ（道を通すときに使う）
+function smoothHeight(x, z) {
+  return fbm(nA, x / 900, z / 900, 3) * 30 + fbm(nB, x / 170, z / 170, 2) * 5;
+}
+
+// ---- 町と道 ----
+const townBase = TOWNS.map((t) => ({ ...t, base: Math.max(rawHeight(t.x, t.z), smoothHeight(t.x, t.z)) }));
+const TOWN_BY_ID = Object.fromEntries(townBase.map((t) => [t.id, t]));
+const roadSegs = ROADS.map(([a, b]) => ({ a: TOWN_BY_ID[a], b: TOWN_BY_ID[b] }));
+
+// 道までの距離（m）
+export function roadDist(x, z) {
+  let best = Infinity;
+  for (const { a, b } of roadSegs) {
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz)));
+    const d = Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+// 町の中心からの距離（いちばん近い町）
+export function townAt(x, z) {
+  for (const t of townBase) if (Math.hypot(x - t.x, z - t.z) < t.r) return t;
+  return null;
+}
+export const townBaseHeight = (id) => TOWN_BY_ID[id]?.base ?? 0;
+
+export function heightAt(x, z) {
+  let h = rawHeight(x, z);
+  // 道：なめらかな起伏に寄せて、崖を切り通す
+  const rd = roadDist(x, z);
+  if (rd < ROAD.width + 10) {
+    const k = smoothstep(ROAD.width + 10, ROAD.width * 0.5, rd);
+    h = lerp(h, smoothHeight(x, z), k);
+  }
+  // 町：平らにならす
+  for (const t of townBase) {
+    const d = Math.hypot(x - t.x, z - t.z);
+    if (d < t.r + 30) h = lerp(h, t.base, smoothstep(t.r + 30, t.r - 4, d));
+  }
+  return h;
 }
 
 // 傾斜（0=平坦）

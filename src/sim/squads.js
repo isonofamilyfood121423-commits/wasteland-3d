@@ -3,7 +3,7 @@ import { SQUADS as S, ENEMY_TYPES } from '../data/combat.js';
 import { ITEMS } from '../data/items.js';
 import { walkable } from './pathfind.js';
 import { planPath } from './move.js';
-import { addItem } from './body.js';
+import { addItem, effSkill } from './body.js';
 import { hostile } from './combat.js';
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -92,7 +92,9 @@ export function stepSquads(w, makePerson, gsec) {
     const ok = (m) => m.state === 'ok' && !m.carriedBy;
 
     if (sq.mode === 'roam') {
-      if (w.banditsOn !== false && w.time > sq.cooldownUntil && alive.some((a) => near(a, S.sight).some(ok))) {
+      // 忍び歩き中の仲間は、隠密が高いほど見つかりにくい
+      const seen = (a) => center.party.some((m) => ok(m) && dist(a, m) < S.sight * (m.sneak ? 1 - Math.min(0.7, effSkill(m, 'stealth') * 0.015) : 1));
+      if (w.banditsOn !== false && w.time > sq.cooldownUntil && alive.some(seen)) {
         sq.mode = 'hunt';
         w.addLogFn?.(`${alive.some((a) => a.enemyType === 'boss') ? '砂鼠団の頭目が率いる一団' : '盗賊の一団'}が襲ってきた！`);
         w.onAlarm?.();

@@ -8,13 +8,9 @@ import { planPath, chase, clearTask } from './move.js';
 
 export function newFight() { return { target: null, cd: 0, act: null, ordered: false, lastHitBy: null, lastHitT: -99 }; }
 
-// ======================= 敵対関係 =======================
-const FACTION_HOSTILE = { bandit: { player: true } };
-export function hostile(a, b) {
-  if (a === b || a.state === 'dead' || b.state === 'dead') return false;
-  if (FACTION_HOSTILE[a.faction]?.[b.faction] || FACTION_HOSTILE[b.faction]?.[a.faction]) return true;
-  return !!(a.angryAt?.includes(b.faction) || b.angryAt?.includes(a.faction));
-}
+// ======================= 敵対関係（判定は factions.js） =======================
+import { hostile, onAttack } from './factions.js';
+export { hostile };
 export const canFight = (p) => p.state === 'ok' && !p.bound && !p.carrying && armsUsable(p);
 const valid = (t) => t && t.state === 'ok' && !t.bound && !t.carriedBy;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -29,8 +25,9 @@ export function orderAttack(w, attackers, target) {
     p.fight.ordered = true;
     p.path = []; p.goal = null;
   }
-  // 中立の相手を攻撃すると、その相手はこちらの陣営を敵とみなす
+  // 中立の相手を攻撃すると、その相手はこちらの陣営を敵とみなす（評判・指名手配も）
   if (!hostile(attackers[0], target) && target.faction !== attackers[0].faction) {
+    onAttack(w, attackers[0], target);
     target.angryAt = [...new Set([...(target.angryAt || []), attackers[0].faction])];
   }
 }
@@ -173,6 +170,15 @@ function pickTarget(w, p) {
     if (recent) { const a = w.people.find((o) => o.id === p.fight.lastHitBy); if (valid(a) && dist(p, a) < 15) return a; }
     return nearest(w, p, (o) => valid(o) && hostile(p, o) && o.fight?.target && w.people.find((x) => x.id === o.fight.target)?.kind === 'party', C.autoDefendRange);
   }
+  // 町の衛兵・野営地の見張り：持ち場の近くに来た敵を狙う。仲間（同じ派閥）を襲う者も狙う
+  if (p.role === 'guard' || p.role === 'police' || p.role === 'boss') {
+    if (recent) { const a = w.people.find((o) => o.id === p.fight.lastHitBy); if (valid(a)) return a; }
+    const range = p.faction === 'eater' ? 70 : p.role === 'police' ? 14 : 34;
+    const hx = p.homeX, hz = p.homeZ;
+    const att = nearest(w, p, (o) => valid(o) && o.fight?.target && w.people.find((x) => x.id === o.fight.target)?.faction === p.faction && hostile(p, o), 40);
+    if (att) return att;
+    return nearest(w, p, (o) => valid(o) && hostile(p, o) && Math.hypot(o.x - hx, o.z - hz) < range + 20, range);
+  }
   if (p.faction === 'bandit') {
     if (!p.squadHunting) return recent ? w.people.find((o) => o.id === p.fight.lastHitBy && valid(o)) || null : null;
     return nearest(w, p, (o) => valid(o) && hostile(p, o), 80);
@@ -208,8 +214,8 @@ function resolveAttack(w, a, d) {
   const atkLv = effSkill(a, wp.cat.skill);
   gainXp(w, a, wp.cat.skill, isBow ? GROWTH.rangedXpPerShot : GROWTH.meleeXpPerSwing);
   if (isBow) ev('arrow');
-  // 中立の相手に攻撃されたら怒る
-  if (!hostile(d, a) && d.faction !== a.faction) d.angryAt = [...new Set([...(d.angryAt || []), a.faction])];
+  // 中立の相手に攻撃されたら怒る（評判・指名手配も）
+  if (!hostile(d, a) && d.faction !== a.faction) { onAttack(w, a, d); d.angryAt = [...new Set([...(d.angryAt || []), a.faction])]; }
   d.fight.lastHitBy = a.id; d.fight.lastHitT = w.time;
 
   // 防御側の反応（相手の方を向いていて、動ける状態のとき）
@@ -262,7 +268,7 @@ function resolveAttack(w, a, d) {
 
 // 流れ者は近くの戦いから逃げる
 export function fleeFromFights(w, p) {
-  if (p.faction !== 'drifter' || p.angryAt?.length || p.state !== 'ok' || p.bound) return false;
+  if ((p.faction !== 'drifter' && p.role !== 'folk') || p.angryAt?.length || p.state !== 'ok' || p.bound || p.far) return false;
   const danger = w.people.find((o) => o.fight?.act?.kind === 'attack' && dist(o, p) < C.fleeRange && o !== p);
   if (!danger) return false;
   const dx = p.x - danger.x, dz = p.z - danger.z, l = Math.hypot(dx, dz) || 1;

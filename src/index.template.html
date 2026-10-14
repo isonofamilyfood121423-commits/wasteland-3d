@@ -159,6 +159,28 @@ button{font:inherit;color:inherit}
 #dialog .row{display:flex;gap:8px}
 #dialog .row .btn{flex:1}
 
+/* ミニマップ・地図 */
+#minimap{position:absolute;right:calc(10px + var(--sr));top:calc(66px + var(--st));width:104px;height:104px;border-radius:12px;border:1px solid var(--line);pointer-events:auto;background:#2a221b}
+#townBadge{position:absolute;right:calc(10px + var(--sr));top:calc(176px + var(--st));max-width:150px;background:rgba(0,0,0,.45);padding:4px 8px;border-radius:8px;font-size:14px;text-align:right}
+#mapPanel{position:fixed;inset:0;z-index:45;background:rgba(20,16,13,.97);padding:calc(10px + var(--st)) calc(10px + var(--sr)) calc(10px + var(--sb)) calc(10px + var(--sl));display:flex;flex-direction:column;gap:8px;overflow:auto;touch-action:pan-y}
+#mapPanel .mhead{display:flex;flex-direction:column;gap:2px;font-size:14px}
+#mapPanel .mhead b{font-size:17px}
+#mapCanvas{width:100%;max-width:520px;aspect-ratio:1;border-radius:12px;border:1px solid var(--line);align-self:center;touch-action:none}
+#mapPanel .row{display:flex;gap:6px}
+#mapPanel .row .btn{flex:1}
+#mapTowns .trow{display:flex;align-items:center;gap:8px;font-size:14px;padding:6px 2px;border-bottom:1px solid var(--line)}
+#mapTowns .trow i{width:12px;height:12px;border-radius:6px;flex:0 0 auto}
+#mapTowns .trow span{flex:1}
+/* 店・派閥 */
+.shopbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.shopbar .btn{min-height:44px;padding:0 10px}
+.money{color:var(--accent2);font-weight:700}
+.frow{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px}
+.frow .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.frow .tag{font-size:14px;font-weight:700}
+.frow .desc{font-size:14px;color:var(--ink2);line-height:1.5;margin-top:4px}
+.repbar{height:8px;border-radius:4px;background:linear-gradient(90deg,#c9573f 0%,#6b5a48 30%,#6b5a48 65%,#6fd27a 100%);position:relative;margin-top:8px}
+.repbar i{position:absolute;top:-4px;width:4px;height:16px;background:#efe6d6;border-radius:2px}
 /* 通知 */
 #toast{position:fixed;left:50%;bottom:calc(190px + var(--sb));transform:translateX(-50%);z-index:55;background:var(--panel2);
   border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:88vw;text-align:center}
@@ -184,7 +206,7 @@ button{font:inherit;color:inherit}
   <div class="build">ビルド __BUILD__<br>__BUILD_TIME__</div>
   <div class="logo">__TITLE__</div>
   <div class="sub">__SUBTITLE__</div>
-  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 3：戦闘の検証版</div>
+  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 4：町と派閥の検証版</div>
   <div class="col">
     <button class="btn primary cont hide" id="contBtn">つづきから<small id="contInfo"></small></button>
     <button class="btn" id="newBtn">はじめから</button>
@@ -205,6 +227,8 @@ button{font:inherit;color:inherit}
     </div>
   </div>
   <div id="pauseBadge" class="hide">一時停止中</div>
+  <canvas id="minimap" width="208" height="208" aria-label="ミニマップ"></canvas>
+  <div id="townBadge" class="hide"></div>
   <div id="debug" class="hide"></div>
   <div class="bottom">
     <div id="party"></div>
@@ -230,6 +254,7 @@ button{font:inherit;color:inherit}
   <div id="tabs">
     <button class="btn" data-tab="party">一団</button>
     <button class="btn" data-tab="save">セーブ</button>
+    <button class="btn" data-tab="factions">派閥</button>
     <button class="btn" data-tab="log">ログ</button>
     <button class="btn" data-tab="settings">設定</button>
   </div>
@@ -238,6 +263,18 @@ button{font:inherit;color:inherit}
 </div>
 
 <div id="dialog" class="hide"><div class="box"><div class="msg" id="dlgMsg"></div><textarea id="dlgText" class="hide"></textarea><div class="row" id="dlgBtns"></div></div></div>
+
+<div id="mapPanel" class="hide">
+  <div class="mhead"><b>地図</b><span class="muted" id="mapHint">タップした地点へ選択中の仲間を移動できます</span></div>
+  <canvas id="mapCanvas" width="800" height="800"></canvas>
+  <div class="row">
+    <button class="btn" data-zoom="4000">全体</button>
+    <button class="btn" data-zoom="1600">広域</button>
+    <button class="btn" data-zoom="600">近く</button>
+    <button class="btn" id="mapClose">閉じる</button>
+  </div>
+  <div id="mapTowns"></div>
+</div>
 
 <div id="toast"></div>
 <div id="rotate"><div class="ico">📱</div>縦にしてください</div>

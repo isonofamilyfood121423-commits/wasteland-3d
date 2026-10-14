@@ -179,6 +179,12 @@ function poseFor(a, time, i) {
     P.knee[k] = bad ? 0.05 : (Math.max(0, Math.cos(ph)) * (0.95 + run * 0.6) + 0.04) * amt + 0.02;
   }
 
+  if (a.sneak && !(f && (f.target || f.act))) {
+    // 忍び歩き：腰を落として前かがみ
+    P.hipY -= 0.22; P.lean += 0.45; P.headPitch -= 0.35;
+    P.thigh = P.thigh.map((v) => v - 0.45); P.knee = P.knee.map((v) => v + 0.75);
+    P.arm = P.arm.map((v) => v * 0.5 - 0.35); P.elbow = P.elbow.map((v) => v + 0.4);
+  }
   if (a.carrying) {
     // 人を担いでいる：右腕で肩の上を押さえる
     P.arm[1] = -2.7; P.elbow[1] = 1.7; P.armOut[1] = 0.2; P.arm[0] = -2.5; P.elbow[0] = 1.8; P.armOut[0] = 0.25;
@@ -237,7 +243,7 @@ export class HumanView {
     }
     this.colorKey = '';
     this.mats = { root: new THREE.Matrix4(), pelvis: new THREE.Matrix4(), torso: new THREE.Matrix4(), tmp: new THREE.Matrix4(), tmp2: new THREE.Matrix4(), hand: new THREE.Matrix4() };
-    this.visibleRadius = 150;
+    this.visibleRadius = 120;
   }
 
   reset() { this.colorKey = ''; }
@@ -284,29 +290,31 @@ export class HumanView {
     for (const m of Object.values(M)) if (m.instanceColor) m.instanceColor.needsUpdate = true;
   }
 
-  update(people, camFocus, time) {
-    // 人数・死亡・装備が変わったら色を塗り直す
-    let key = people.length + ':';
-    for (const a of people) key += (a.state === 'dead' ? 'd' : '.') + (a.equipVer || 0) + ',';
+  update(allPeople, camFocus, time) {
+    // 近くの人だけを詰めて描く（遠くの人はインスタンスを使わない＝頂点処理も省く）
+    const R2 = this.visibleRadius * this.visibleRadius;
+    const people = this.visible || (this.visible = []);
+    people.length = 0;
+    for (const a of allPeople) {
+      const dx = a.x - camFocus.x, dz = a.z - camFocus.z;
+      if (dx * dx + dz * dz <= R2 && people.length < this.max) people.push(a);
+    }
+    // 顔ぶれ・死亡・装備が変わったら色を塗り直す
+    let key = '';
+    for (const a of people) key += a.id + (a.state === 'dead' ? 'd' : '.') + (a.equipVer || 0) + ',';
     if (key !== this.colorKey) { this.applyColors(people); this.colorKey = key; }
 
     const M = this.meshes;
     const { root, pelvis, torso, tmp, tmp2, hand } = this.mats;
-    const R2 = this.visibleRadius * this.visibleRadius;
-    const n = Math.min(people.length, this.max);
+    const n = people.length;
     const hide = (name, idx) => M[name].setMatrixAt(idx, ZERO);
 
     for (let i = 0; i < n; i++) {
       const a = people[i];
-      const dx = a.x - camFocus.x, dz = a.z - camFocus.z;
-      if (dx * dx + dz * dz > R2) { // 遠方は描画しない（LOD）
-        for (const [name, mul] of Object.entries(PARTS)) for (let k = 0; k < mul; k++) hide(name, i * mul + k);
-        continue;
-      }
       const L = a.look;
       const E = a.equip || {};
       const shape = RACES[a.race || 'sunabito'].shape;
-      const P = poseFor(a, time, i);
+      const P = poseFor(a, time, a.id);
 
       _q.setFromAxisAngle(_v.set(0, 1, 0), a.heading + (P.yawOffset || 0));
       root.compose(_v.set(a.x, heightAt(a.x, a.z), a.z), _q, _s.set(L.bulk, L.height, L.bulk));

@@ -12,7 +12,14 @@ import { renderBody, renderSkills, renderInventory, renderEquip, stateText } fro
 import { equipItem, unequip } from './sim/equip.js';
 import { orderAttack, orderRetreat, orderCarry, orderBind, orderRelease, dropCarried, hostile } from './sim/combat.js';
 import { itemLabel } from './data/items.js';
-import { FACTIONS } from './data/combat.js';
+import { FACTIONS, TOWNS, REP, SHOPS, ROLE_LABEL } from './data/world.js';
+import { TownView } from './render/townView.js';
+import { ensureMapImage, drawMap, screenToMap } from './ui/map.js';
+import { shopStock, priceOf, buy, sell, canSell, steal, stealChance, hire } from './sim/trade.js';
+import { isWanted, fineFor, payFine, handoverCandidates, handOver, changeRep } from './sim/factions.js';
+import { townLayout, townById } from './sim/towns.js';
+import { townAt } from './sim/terrain.js';
+import { LINES } from './data/dialog.js';
 import { Effects } from './render/effects.js';
 import { Atmosphere } from './render/atmosphere.js';
 import { TerrainView } from './render/terrainView.js';
@@ -50,9 +57,10 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(CAMERA.fov, 1, 0.5, 2600);
 const atmosphere = new Atmosphere(scene);
 const terrain = new TerrainView(scene);
-const humans = new HumanView(scene, CROWD.count + 16);
+const humans = new HumanView(scene, 300);
 const markers = new Markers(scene);
 const effects = new Effects(scene);
+const towns = new TownView(scene);
 const rig = new CameraRig(camera, canvas);
 
 let world = createWorld(WORLD.seed); // タイトル背景にも使う
@@ -76,6 +84,7 @@ function applyQuality(name) {
   renderer.shadowMap.enabled = q.shadows;
   atmosphere.setShadows(q.shadows, q.shadowMap);
   humans.setShadows(q.shadows);
+  towns.setShadows(q.shadows);
   terrain.setQuality(q);
   scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
   resize();
@@ -113,6 +122,7 @@ function startWorld(w, cam) {
   let lastBuzz = 0;
   world.onPartyHit = () => { const t = performance.now(); if (t - lastBuzz > 400) { lastBuzz = t; vibrate(25); } };
   world.onAlarm = () => vibrate([60, 40, 60]);
+  world.onToll = (t) => onToll(t);
   gameOverShown = false;
   humans.reset();
   selected.clear(); inspected = null; rig.follow = null;
@@ -222,7 +232,7 @@ function updatePartyMarks() {
     const bar = el.querySelector('.hpb i');
     bar.style.width = Math.round(hp * 100) + '%';
     bar.style.background = hp > 0.66 ? '#6fd27a' : hp > 0.33 ? '#d8c35a' : '#c9573f';
-    const st = p.state === 'dead' ? '死亡' : p.state === 'ko' ? '気絶' : totalBleed(p) > 0.05 ? '出血' : p.task?.kind === 'treat' ? '治療' : p.task?.kind === 'rest' ? '休息' : '';
+    const st = p.state === 'dead' ? '死亡' : p.jailUntil ? '投獄' : p.state === 'ko' ? '気絶' : totalBleed(p) > 0.05 ? '出血' : p.task?.kind === 'treat' ? '治療' : p.task?.kind === 'rest' ? '休息' : p.sneak ? '忍び' : '';
     el.querySelector('.st').textContent = st;
   });
 }
@@ -357,6 +367,8 @@ rig.onTap = async (x, y) => {
       return;
     }
     inspected = p;
+    // 町の人をタップ：話しかける
+    if (p.role && p.state === 'ok' && !p.bound && !hostile(p, partyOf(world)[0] || p)) { talk(p); return; }
     toast(`${p.name}（${p.title || FACTIONS[p.faction]?.label || '流れ者'}）　長押しで行動を選べます`);
     return;
   }
@@ -420,6 +432,7 @@ function personActions(p) {
     if (p.state === 'ok') {
       acts.push({ label: '休む', run: () => orderRest(world, [p.id]) });
       acts.push({ label: 'その場で待機', run: () => stopPerson(p) });
+      acts.push({ label: p.sneak ? '忍び歩きをやめる' : '忍び歩き', run: () => { const who = selected.has(p.id) ? selectedParty() : [p]; const on = !p.sneak; who.forEach((m) => { m.sneak = on; }); toast(on ? '忍び歩きにしました（遅いが見つかりにくい）' : '普通に歩きます'); } });
     }
     acts.push({ label: 'カメラで追う', run: () => followPerson(p) });
     acts.push({ label: '検証メニュー', run: () => debugActions(p) });
@@ -436,7 +449,7 @@ function personActions(p) {
     if (p.bound) acts.push({ label: '縄をほどく', run: need((a) => orderRelease(world, a, p)) });
     acts.push({ label: '担ぐ', run: need((a) => orderCarry(world, a, p)) });
   } else {
-    acts.push({ label: '話す', phase: 'Phase 4' });
+    acts.push({ label: '話す', run: () => talk(p) });
   }
   if (!dead) acts.push({ label: '治療する', run: () => treatWith(p) });
   acts.push({ label: '体の状態', run: () => openPerson(p.id, 'body') });
@@ -468,7 +481,7 @@ function renderSheet() {
   });
   const body = $('sheetBody');
   body.innerHTML = '';
-  ({ party: sheetParty, save: sheetSave, log: sheetLog, settings: sheetSettings, person: sheetPerson })[sheetTab](body);
+  ({ party: sheetParty, save: sheetSave, log: sheetLog, settings: sheetSettings, person: sheetPerson, factions: sheetFactions, shop: sheetShop })[sheetTab](body);
 }
 
 let personId = null, personSub = 'body';
@@ -739,6 +752,8 @@ function loop(now) {
   focus.copy(rig.target);
   const k = atmosphere.update(world.hour, focus, camera.position, q.fogFar, rig.dist);
   terrain.update(focus, k.fog, running ? 2 : 6);
+  towns.update(focus, q.fogFar + rig.dist + 60);
+  world.focus = focus;
   humans.update(world.people, focus, elapsed);
   if (world.events?.length) { effects.spawn(world.events); world.events.length = 0; }
   effects.update(dt);
@@ -778,6 +793,10 @@ function loop(now) {
     $('dayLabel').textContent = `${world.day}日目 ${atmosphere.isNight ? '夜' : world.hour < 10 ? '朝' : world.hour < 17 ? '昼' : '夕'}`;
     $('moneyLabel').textContent = `${world.money} ${PARTY.currency}`;
     updatePartyMarks();
+    drawMinimap();
+    const tHere = townAt(rig.target.x, rig.target.z);
+    $('townBadge').classList.toggle('hide', !tHere);
+    if (tHere) $('townBadge').textContent = `${tHere.name}・${FACTIONS[tHere.faction].label}${isWanted(tHere.faction) ? '（手配中）' : ''}`;
     const party0 = partyOf(world);
     const cm = party0.some((m) => m.fight?.target && m.state === 'ok') || world.people.some((o) => o.state === 'ok' && (o.squadHunting || o.angryAt?.includes('player')) && party0.some((m) => Math.hypot(m.x - o.x, m.z - o.z) < 45));
     if (cm !== combatMode) { combatMode = cm; $('restBtn').textContent = cm ? '退却' : '休む'; $('restBtn').classList.toggle('danger', cm); }
@@ -806,6 +825,227 @@ function loop(now) {
   }
 }
 
+// =====================================================================
+// 町：会話・店・酒場・警備所・派閥・通行料・地図
+// =====================================================================
+const rnd = () => Math.random();
+const pickL = (list) => list[Math.floor(rnd() * list.length)];
+const near = (a, b, d) => Math.hypot(a.x - b.x, a.z - b.z) < d;
+
+// 話しかける：近くに仲間がいなければ、選択中の仲間を向かわせる
+function talk(npc) {
+  const party = partyOf(world).filter((m) => m.state === 'ok');
+  const speaker = party.filter((m) => near(m, npc, 6)).sort((a, b) => Math.hypot(a.x - npc.x, a.z - npc.z) - Math.hypot(b.x - npc.x, b.z - npc.z))[0];
+  if (!speaker) {
+    const go = selectedParty().filter((m) => m.state === 'ok');
+    if (!go.length) { toast('話しかける仲間を選択してください'); return; }
+    orderMove(world, go.map((m) => m.id), npc.x + 1.2, npc.z + 1.2);
+    toast(`${go[0].name}が${npc.name}のところへ向かいます。着いたらもう一度「話す」を押してください`);
+    return;
+  }
+  if (npc.state !== 'ok') { toast('返事がない。'); return; }
+  if (hostile(npc, speaker)) { toast(`${npc.name}は話を聞く気がない。`); return; }
+  npc.heading = Math.atan2(speaker.x - npc.x, speaker.z - npc.z);
+  const town = npc.town ? townById(npc.town) : null;
+  const who = `${npc.name}（${npc.title || ROLE_LABEL[npc.role] || FACTIONS[npc.faction]?.label || '流れ者'}）`;
+  const f = npc.faction;
+  if (npc.role === 'shopkeeper' || (npc.role === 'bartender')) {
+    const line = pickL(npc.role === 'bartender' ? LINES.bartender : LINES.shopkeeper);
+    const btns = [{ label: '店を見る', value: 'shop', cls: 'primary' }];
+    if (npc.role === 'bartender') { btns.push({ label: '仲間を探す', value: 'recruit' }); btns.push({ label: '噂を聞く', value: 'rumor' }); }
+    btns.push({ label: '立ち去る', value: null });
+    ask(`${who}\n「${line}」`, btns).then((r) => {
+      if (r.value === 'shop') openShop(npc.town, npc.shop, npc, speaker);
+      if (r.value === 'recruit') showRecruits(npc.town);
+      if (r.value === 'rumor') ask(`${who}\n「${pickL(LINES.rumors)}」`, [{ label: '礼を言う', value: 0 }]);
+    });
+    return;
+  }
+  if (npc.role === 'police') {
+    const cands = handoverCandidates(world, npc);
+    const fine = fineFor(world, f);
+    const btns = [];
+    for (const c of cands.slice(0, 3)) btns.push({ label: `${c.name}を引き渡す（${c.bounty ? `賞金${c.bounty}` : '保護'}）`, value: 'h:' + c.id, cls: 'primary' });
+    if (fine) btns.push({ label: `罰金を払う（${fine}錆貨）`, value: 'fine' });
+    btns.push({ label: '賞金首について聞く', value: 'bounty' });
+    btns.push({ label: '立ち去る', value: null });
+    const wantedLine = isWanted(f) ? '\n（あなたの一団はここで指名手配されています）' : '';
+    ask(`${who}\n「${pickL(LINES.police)}」${wantedLine}\n\n縛った賞金首を、この役人のそば（8m以内）まで担いでくると引き渡せます。`, btns).then((r) => {
+      if (!r.value) return;
+      if (r.value === 'fine') { if (!payFine(world, f)) toast('錆貨が足りません'); return; }
+      if (r.value === 'bounty') { const b = world.people.find((x) => x.bounty && x.state !== 'dead'); ask(`${who}\n「${b ? `${b.name}という${b.title || '賞金首'}に${b.bounty}錆貨がかかっている。生け捕りにしてこい。` : '今は目立った賞金首はいない。'}」`, [{ label: 'わかった', value: 0 }]); return; }
+      const c = personById(world, +r.value.slice(2));
+      if (c) { handOver(world, npc, c); if (inspected === c) inspected = null; }
+    });
+    return;
+  }
+  if (npc.role === 'recruit') { showRecruitTalk(npc); return; }
+  let line;
+  if (npc.role === 'guard') line = pickL((isWanted(f) ? LINES.guard.hostile : LINES.guard[f]) || LINES.guard.merchant);
+  else if (npc.role === 'folk') line = pickL(LINES.folk[f] || LINES.folk.merchant);
+  else line = pickL(LINES.drifter);
+  ask(`${who}\n「${line}」`, [{ label: '立ち去る', value: 0 }]);
+}
+
+function showRecruitTalk(r) {
+  const top = Object.entries(r.skills).sort((a, b) => b[1].lv - a[1].lv).slice(0, 3).map(([k, v]) => `${({ str: '筋力', agi: '敏捷', tough: '耐久', melee: '近接攻撃', defense: '防御', dodge: '回避', stealth: '隠密', theft: '窃盗', ranged: '射撃', medic: '医療', labor: '労働', cook: '料理', farm: '農業', smith: '鍛冶', research: '研究' })[k]}${v.lv}`).join('・');
+  const price = r.hirePrice;
+  ask(`${r.name}（${RACES[r.race].label}・${top}）\n「${pickL(LINES.recruit)}」\n\n${price ? `雇い代：${price}錆貨（所持金 ${world.money}）` : '金はいらないらしい。'}`, [
+    { label: price ? `${price}錆貨で雇う` : '仲間に誘う', value: 'hire', cls: 'primary' }, { label: 'やめる', value: null },
+  ]).then((res) => {
+    if (res.value !== 'hire') return;
+    const out = hire(world, r);
+    toast(out.msg);
+    if (out.ok) { humans.reset(); renderParty(); selectOnly(r.id); }
+  });
+}
+
+function showRecruits(townId) {
+  const list = world.people.filter((p) => p.role === 'recruit' && p.town === townId && p.state === 'ok');
+  if (!list.length) { ask('酒場の主人「今日は誰もいないよ。また来な。」', [{ label: '立ち去る', value: 0 }]); return; }
+  ask('酒場の主人「この辺に座ってる連中だ。話してみな。」', list.map((r) => ({ label: `${r.name}（${RACES[r.race].label}）${r.hirePrice ? ` ${r.hirePrice}錆貨` : ' 無料'}`, value: r.id })).concat([{ label: 'やめる', value: null }])).then((res) => {
+    const r = res.value && personById(world, res.value);
+    if (r) showRecruitTalk(r);
+  });
+}
+
+// ---- 店 ----
+let shopState = null;
+function openShop(townId, shopType, keeper, buyer) {
+  shopState = { townId, shopType, keeperId: keeper.id, buyerId: buyer.id, mode: 'buy' };
+  openSheet('shop');
+}
+function sheetShop(body) {
+  if (!shopState) { sheetTab = 'party'; renderSheet(); return; }
+  const town = townById(shopState.townId);
+  const keeper = personById(world, shopState.keeperId);
+  let buyer = personById(world, shopState.buyerId);
+  const near2 = partyOf(world).filter((m) => m.state === 'ok' && keeper && near(m, keeper, 12));
+  if (!keeper || keeper.state !== 'ok' || !near2.length) { body.innerHTML = '<div class="note">店から離れたため、取引できません。</div>'; return; }
+  if (!buyer || !near2.includes(buyer)) { buyer = near2[0]; shopState.buyerId = buyer.id; }
+  const st = shopStock(world, town.id, shopState.shopType);
+  const mode = shopState.mode;
+  body.innerHTML = `<h3>${town.name}の${SHOPS[shopState.shopType].label}</h3>
+    <div class="shopbar">所持金 <span class="money">${world.money} 錆貨</span></div>
+    <div class="shopbar">取引する仲間：${near2.map((m) => `<button class="btn ${m === buyer ? 'on' : ''}" data-buyer="${m.id}">${m.name}</button>`).join('')}</div>
+    <div class="subtabs">${[['buy', '買う'], ['sell', '売る'], ['steal', '盗む']].map(([k, l]) => `<button class="btn ${mode === k ? 'on' : ''}" data-mode="${k}">${l}</button>`).join('')}</div>
+    <div id="shopList"></div>`;
+  body.querySelectorAll('[data-buyer]').forEach((b) => { b.onclick = () => { shopState.buyerId = +b.dataset.buyer; renderSheet(); }; });
+  body.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => { shopState.mode = b.dataset.mode; renderSheet(); }; });
+  const list = body.querySelector('#shopList');
+  let html = '';
+  if (mode === 'buy' || mode === 'steal') {
+    const door = townLayout(town).shopDoors[shopState.shopType] || keeper;
+    if (mode === 'steal') html += `<div class="note">成功率 ${Math.round(stealChance(world, buyer, town.id, door) * 100)}%（窃盗の能力・近くの衛兵の数・忍び歩きで変わります）。失敗すると${FACTIONS[town.faction].label}に指名手配されます。</div>`;
+    if (!st.stock.length) html += '<div class="note">品切れです。明日には入れ替わります。</div>';
+    st.stock.forEach((e, i) => {
+      const it = ITEMS[e.id];
+      const price = priceOf(world, town, e.id, e.q);
+      html += `<div class="irow"><div class="info"><b>${itemLabel(e.id, e.q)}</b> ×${e.qty}<br><small class="muted">${it.weight}kg・${ITEM_CAT_LABEL(it.cat)}</small></div><span class="money">${price}</span><button class="btn ${mode === 'steal' ? 'danger' : ''}" data-i="${i}">${mode === 'steal' ? '盗む' : '買う'}</button></div>`;
+    });
+  } else {
+    const items = buyer.inv.map((s2, i) => ({ s: s2, i })).filter(({ s: s2 }) => canSell(shopState.shopType, s2.id));
+    if (!items.length) html += '<div class="note">この店で買い取ってもらえる物を持っていません。</div>';
+    for (const { s: s2, i } of items) html += `<div class="irow"><div class="info"><b>${itemLabel(s2.id, s2.q)}</b> ×${s2.qty}</div><span class="money">${priceOf(world, town, s2.id, s2.q ?? 1, true)}</span><button class="btn" data-sell="${i}">売る</button></div>`;
+  }
+  list.innerHTML = html;
+  list.querySelectorAll('[data-i]').forEach((b) => {
+    b.onclick = async () => {
+      if (mode === 'steal') {
+        const door = townLayout(town).shopDoors[shopState.shopType] || keeper;
+        const r = steal(world, town.id, shopState.shopType, +b.dataset.i, buyer, door);
+        toast(r.msg);
+        if (r.caught) { closeSheet(); return; }
+      } else toast(buy(world, town.id, shopState.shopType, +b.dataset.i, buyer).msg);
+      renderSheet();
+    };
+  });
+  list.querySelectorAll('[data-sell]').forEach((b) => { b.onclick = () => { toast(sell(world, town.id, shopState.shopType, buyer, +b.dataset.sell).msg); renderSheet(); }; });
+}
+const ITEM_CAT_LABEL = (c) => ({ weapon: '武器', armor: '防具', food: '食料', med: '医療', trade: '交易品', material: '素材', limb: '義肢' })[c] || '';
+
+// ---- 派閥 ----
+function sheetFactions(body) {
+  let html = '<h3>派閥との関係</h3>';
+  for (const f of ['merchant', 'holy', 'bandit', 'eater']) {
+    const F = FACTIONS[f];
+    const rep = world.rep?.[f] ?? 0;
+    const hostileF = (F.enemies || []).includes('player') || rep < REP.hostileBelow;
+    const wanted = isWanted(f);
+    const tag = wanted ? '<span class="tag" style="color:#ff8f7a">指名手配中</span>' : hostileF ? '<span class="tag" style="color:#ff8f7a">敵対</span>' : rep > REP.friendlyAbove ? '<span class="tag" style="color:#6fd27a">友好</span>' : '<span class="tag muted">中立</span>';
+    const fine = fineFor(world, f);
+    html += `<div class="frow"><div class="top"><b>${F.label}</b>${tag}</div>
+      <div class="repbar"><i style="left:calc(${(rep + 100) / 2}% - 2px)"></i></div>
+      <div class="desc">評判 ${Math.round(rep)}${wanted ? `・罰金 ${fine}錆貨（警備所で払うと解ける。${world.wanted[f].until}日目に自然に解ける）` : ''}<br>${F.desc}</div>
+      <div class="desc">町：${TOWNS.filter((t) => t.faction === f).map((t) => (world.discovered?.[t.id] ? t.name : '？')).join('、') || 'なし'}</div></div>`;
+  }
+  html += '<div class="note">評判は取引・賞金首の引き渡し・手当てで上がり、攻撃・殺害・盗みで下がります。-40を下回るとその派閥から敵とみなされます。</div>';
+  body.innerHTML = html;
+}
+
+// ---- 通行料 ----
+function onToll(t) {
+  const prev = world.timeScale;
+  world.timeScale = 0; setSpeedButtons();
+  const hasMachine = partyOf(world).some((m) => m.race === FACTIONS[t.faction].hatesRace && m.state !== 'dead');
+  const extra = hasMachine ? '\n「それと、機械の体の者を連れているな。灯の下で見つけたら、ただでは済まさん。」' : '';
+  const can = world.money >= t.toll;
+  ask(`${t.name}の衛兵\n「止まれ。ここは${FACTIONS[t.faction].label}の町だ。通行料${t.toll}錆貨を払え。」${extra}\n\n所持金 ${world.money}錆貨`, [
+    ...(can ? [{ label: `${t.toll}錆貨を払う`, value: 'pay', cls: 'primary' }] : []),
+    { label: '断る', value: 'refuse', cls: 'danger' },
+    { label: '引き返す', value: 'leave' },
+  ]).then((r) => {
+    world.pendingToll = null;
+    world.timeScale = prev || 1; setSpeedButtons();
+    if (r.value === 'pay') { world.money -= t.toll; world.tollPaid[t.id] = world.day; addLog(world, `通行料${t.toll}錆貨を払った。`); }
+    else if (r.value === 'refuse') { world.tollRefused[t.id] = world.day; changeRep(world, t.faction, REP.tollRefuse, '通行料を拒んだ'); addLog(world, `通行料を拒んだ。${t.name}の衛兵が向かってくる！`); world.onAlarm?.(); }
+    else {
+      // 町の外へ下がる
+      const party = partyOf(world).filter((m) => m.state === 'ok');
+      party.forEach((m) => { const dx = m.x - t.x, dz = m.z - t.z, l = Math.hypot(dx, dz) || 1; orderMove(world, [m.id], t.x + (dx / l) * (t.r + 25), t.z + (dz / l) * (t.r + 25)); });
+      world.inTown = { ...(world.inTown || {}), [t.id]: false };
+    }
+  });
+}
+
+// ---- ミニマップ・地図 ----
+const minimap = $('minimap');
+let mapView = null, mapZoom = 1600;
+function drawMinimap() { drawMap(minimap, world, rig.target, 320, { camera: null }); }
+minimap.onclick = () => openMap();
+function openMap() {
+  ensureMapImage(() => { if (!$('mapPanel').classList.contains('hide')) renderMapPanel(); });
+  $('mapPanel').classList.remove('hide');
+  renderMapPanel();
+}
+function renderMapPanel() {
+  const party = partyOf(world).filter((m) => m.state !== 'dead');
+  const c = mapZoom >= 4000 ? { x: 0, z: 0 } : party.length ? { x: party[0].x, z: party[0].z } : rig.target;
+  mapView = drawMap($('mapCanvas'), world, c, mapZoom, { labels: true, camera: rig.target });
+  $('mapTowns').innerHTML = TOWNS.map((t) => {
+    const known = world.discovered?.[t.id];
+    const d = party.length ? Math.round(Math.hypot(t.x - party[0].x, t.z - party[0].z)) : 0;
+    return `<div class="trow"><i style="background:#${(FACTIONS[t.faction].accent || 0x888888).toString(16).padStart(6, '0')}"></i><span>${known ? `${t.name}（${FACTIONS[t.faction].label}）` : '未発見の場所'}</span><span class="muted">${known ? `${d}m` : ''}</span>${known ? `<button class="btn" data-go="${t.id}">ここへ</button>` : ''}</div>`;
+  }).join('');
+  $('mapTowns').querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => { const t = townById(b.dataset.go); goTo(t.x + 4, t.z + 4, t.name); }; });
+}
+function goTo(x, z, label) {
+  const s = selectedParty().filter((m) => m.state === 'ok');
+  if (!s.length) { toast('移動させる仲間を選択してください'); return; }
+  orderMove(world, s.map((m) => m.id), x, z);
+  $('mapPanel').classList.add('hide');
+  toast(`${label || 'その地点'}へ向かいます（遠い場所は道をたどって進みます）`);
+}
+$('mapCanvas').addEventListener('click', (e) => {
+  if (!mapView) return;
+  const r = e.target.getBoundingClientRect();
+  const k = $('mapCanvas').width / r.width;
+  const pt = screenToMap(mapView, (e.clientX - r.left) * k, (e.clientY - r.top) * k);
+  confirmBox(`この地点（${Math.round(pt.x)}, ${Math.round(pt.z)}）へ選択中の仲間を移動しますか？`, '移動する').then((ok) => { if (ok) goTo(pt.x, pt.z); });
+});
+document.querySelectorAll('#mapPanel [data-zoom]').forEach((b) => { b.onclick = () => { mapZoom = +b.dataset.zoom; renderMapPanel(); }; });
+$('mapClose').onclick = () => $('mapPanel').classList.add('hide');
+
 // ---- 起動 ----
 function boot() {
   applyQuality(effectiveQuality());
@@ -815,9 +1055,10 @@ function boot() {
   rig.update(0.016);
   $('loading').classList.add('hide');
   refreshTitle();
+  setTimeout(() => ensureMapImage(), 1500);
   requestAnimationFrame((t) => { last = t; loop(t); });
 }
 boot();
 
 // 自動テスト用
-window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, orderBind, orderCarry, orderAttack, pick: (x, y) => pickPeople(camera, world.people, x, y).length };
+window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, orderBind, orderCarry, orderAttack, talk, openMap, openSheet, pick: (x, y) => pickPeople(camera, world.people, x, y).length };

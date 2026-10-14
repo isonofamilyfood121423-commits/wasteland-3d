@@ -1,6 +1,6 @@
 // アイテム定義（食料・医療・素材・義肢・武器・防具）。追加・調整はこのファイルで行う
 
-export const ITEM_CATS = { weapon: '武器', armor: '防具', food: '食料', med: '医療', material: '素材', limb: '義肢' };
+export const ITEM_CATS = { weapon: '武器', armor: '防具', food: '食料', med: '医療', trade: '交易品', material: '素材', limb: '義肢' };
 
 // 品質：武器の威力・防具の防御力に掛かる倍率
 export const QUALITY_NAMES = ['粗悪', '普通', '上質', '逸品'];
@@ -39,6 +39,11 @@ export const ITEMS = {
   aidkit: { label: '応急処置キット', cat: 'med', weight: 0.8, aid: { kind: 'bandage', power: 40, speed: 1.6 }, price: 45 },
   repair_kit: { label: '修理キット', cat: 'med', weight: 0.8, aid: { kind: 'repair', power: 35, speed: 1.2 }, price: 40 },
   rope: { label: '縄', cat: 'material', weight: 0.6, price: 8 },
+  // 交易品（町ごとに値段が大きく違う。安い町で買って高い町で売る）
+  trade_salt: { label: '塩', cat: 'trade', weight: 1, price: 30 },
+  trade_iron: { label: '鉄板', cat: 'trade', weight: 3, price: 64 },
+  trade_cloth: { label: '布', cat: 'trade', weight: 0.8, price: 26 },
+  trade_herb: { label: '薬草', cat: 'trade', weight: 0.3, price: 22 },
   // 素材
   scrap: { label: '鉄くず', cat: 'material', weight: 4, price: 6 },
   // 義肢

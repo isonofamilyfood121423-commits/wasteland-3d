@@ -2,7 +2,8 @@
 // ・傾斜を通行コストに反映し、急な崖は通行不可
 // ・廃墟の柱や大岩の占有範囲は通行不可
 // ・建物の配置/撤去時は invalidateArea() で該当範囲だけ作り直す
-import { heightAt } from './terrain.js';
+import { heightAt, roadDist } from './terrain.js';
+import { ROAD } from '../data/world.js';
 import { chunkSolids } from './worldgen.js';
 import { WORLD, PATH } from '../data/config.js';
 
@@ -76,7 +77,9 @@ export function cell(ix, iz) {
   const h00 = vh(ix, iz), h10 = vh(ix + 1, iz), h01 = vh(ix, iz + 1), h11 = vh(ix + 1, iz + 1);
   const slope = Math.max(Math.abs(h00 - h11), Math.abs(h10 - h01), Math.abs(h00 - h10), Math.abs(h00 - h01), Math.abs(h11 - h10), Math.abs(h11 - h01)) / CELL;
   const blocked = slope > PATH.maxSlope || solidAt(ix, iz);
-  c = { blocked, cost: 1 + slope * PATH.slopeCost };
+  // 道の上は歩きやすい（遠くへの移動は自然と道を通る）
+  const onRoad = roadDist(cellCenter(ix), cellCenter(iz)) < ROAD.width;
+  c = { blocked, cost: (1 + slope * PATH.slopeCost) * (onRoad ? ROAD.pathCost : 1) };
   cellCache.set(k, c);
   if (cellCache.size > 200000) cellCache.clear();
   return c;

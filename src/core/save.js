@@ -7,7 +7,7 @@ import { SAVE } from '../data/config.js';
 import { Rng } from './rng.js';
 import { findSpawn } from '../sim/worldgen.js';
 import { initHealth } from '../sim/body.js';
-import { attachRuntime, dressFromLook } from '../sim/world.js';
+import { attachRuntime, dressFromLook, populateTowns } from '../sim/world.js';
 import { emptyEquip } from '../sim/equip.js';
 import { newFight } from '../sim/combat.js';
 
@@ -18,7 +18,8 @@ export const slotLabel = (id) => (id === 'auto' ? '自動セーブ' : `スロッ
 // ---- 状態 ⇄ セーブデータ ----
 const PERSON_FIELDS = ['id', 'kind', 'name', 'surname', 'x', 'z', 'heading', 'maxSpeed', 'homeX', 'homeZ', 'look',
   'race', 'body', 'blood', 'hunger', 'state', 'koTimer', 'skills', 'inv', 'resting',
-  'faction', 'equip', 'equipVer', 'money', 'bound', 'angryAt', 'enemyType', 'title', 'bounty', 'squad', 'carrying', 'carriedBy'];
+  'faction', 'equip', 'equipVer', 'money', 'bound', 'angryAt', 'enemyType', 'title', 'bounty', 'squad', 'carrying', 'carriedBy',
+  'role', 'town', 'station', 'patrolIdx', 'shop', 'hirePrice', 'sneak', 'jailUntil', 'provokedBy', 'treatedBy'];
 
 export function serialize(world, cam, build) {
   return {
@@ -34,6 +35,8 @@ export function serialize(world, cam, build) {
     money: world.money,
     time: world.time,
     banditsOn: world.banditsOn,
+    rep: world.rep, wanted: world.wanted, tollPaid: world.tollPaid, tollRefused: world.tollRefused,
+    discovered: world.discovered, shops: world.shops, tradeRep: world.tradeRep,
     spawnTimer: world.spawnTimer,
     squads: world.squads.map((q) => ({ id: q.id, members: q.members, mode: q.mode, cooldownUntil: q.cooldownUntil })),
     camera: cam,
@@ -69,6 +72,8 @@ export function migrate(data) {
       return q;
     }) };
   }
+  // v3 → v4（Phase 4）：町の人々・派閥の評判を追加（町の人々は読み込み時に生成）
+  if (d.v === 3) d = { ...d, v: 4, needTowns: true };
   // 版を上げたらここに1段ずつ追加する
   if (d.v > SAVE.version) throw new Error('新しい版で作られたセーブデータです。ゲームを最新版に更新してください');
   return d;
@@ -90,6 +95,7 @@ export function deserialize(raw) {
     banditsOn: d.banditsOn !== false,
     spawnTimer: d.spawnTimer || 0,
     squads: (d.squads || []).map((q) => ({ ...q, t: 0 })),
+    rep: d.rep, wanted: d.wanted, tollPaid: d.tollPaid, tollRefused: d.tollRefused, discovered: d.discovered, shops: d.shops, tradeRep: d.tradeRep,
     people: d.people.map((p) => ({
       ...p,
       speed: 0, phase: Math.random() * 6.28, path: [], goal: null, pendingGoal: p.goal || null,
@@ -99,6 +105,7 @@ export function deserialize(raw) {
   };
   for (const p of world.people) if (p.resting) p.task = { kind: 'rest' };
   attachRuntime(world);
+  if (d.needTowns) populateTowns(world);
   return { world, camera: d.camera };
 }
 

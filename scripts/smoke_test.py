@@ -45,13 +45,15 @@ with sync_playwright() as p:
     pg.wait_for_timeout(300)
     moving = G(f'const p = g.world.people.find(x => x.id === {p0["id"]}); return !!p.goal || p.path.length > 0;')
     check('tap_ground_moves', moving)
-    pg.wait_for_timeout(2500)
-    p1 = G(f'const p = g.world.people.find(x => x.id === {p0["id"]}); return {{x: p.x, z: p.z}};')
+    for _ in range(8):
+        pg.wait_for_timeout(800)
+        p1 = G(f'const p = g.world.people.find(x => x.id === {p0["id"]}); return {{x: p.x, z: p.z}};')
+        if abs(p1['x'] - p0['x']) + abs(p1['z'] - p0['z']) > 1.0: break
     check('person_moved', abs(p1['x'] - p0['x']) + abs(p1['z'] - p0['z']) > 1.0)
     shot('3_moving.png')
 
     # 長押し（地面）でアクション一覧
-    pg.mouse.move(150, 500); pg.mouse.down(); pg.wait_for_timeout(650); pg.mouse.up()
+    pg.mouse.move(150, 500); pg.mouse.down(); pg.wait_for_timeout(1300); pg.mouse.up()
     pg.wait_for_timeout(200)
     check('longpress_menu', pg.is_visible('#pop'))
     shot('4_longpress.png')
@@ -68,7 +70,7 @@ with sync_playwright() as p:
     # 全員を長距離移動（経路探索の再探索）
     G('const sp = g.world.spawn; const ids = g.world.people.filter(x=>x.kind==="party").map(x=>x.id); window.__orderFar = ids;')
     pg.tap('#allBtn')
-    pg.mouse.move(330, 250); pg.mouse.down(); pg.wait_for_timeout(650); pg.mouse.up(); pg.wait_for_timeout(200)
+    pg.mouse.move(330, 250); pg.mouse.down(); pg.wait_for_timeout(1300); pg.mouse.up(); pg.wait_for_timeout(200)
     pg.click('#pop .grid .btn >> nth=1')  # 全員をここへ
     pg.wait_for_timeout(300)
     check('all_move', G('return g.world.people.filter(x=>x.kind==="party").every(x => x.goal || x.path.length);'))
@@ -147,7 +149,7 @@ with sync_playwright() as p:
     check('fighting', G('return g.world.people.some(p => p.faction === "bandit" && p.fight && (p.fight.target || p.fight.act));'))
     check('retreat_button', pg.inner_text('#restBtn') == '退却')
     # 敵を1人気絶させて縛る・担ぐ・あさる
-    G('const w = g.world; const P0 = w.people.find(x=>x.kind==="party"); const e = w.people.filter(p => p.faction === "bandit").sort((a,b)=>Math.hypot(a.x-P0.x,a.z-P0.z)-Math.hypot(b.x-P0.x,b.z-P0.z))[0]; e.state = "ko"; e.koTimer = 99; e.body.chest.hp = -5; const P = w.people.filter(x=>x.kind==="party"); w.people.filter(p=>p.faction==="bandit" && p!==e).forEach(b=>{ b.state="dead"; }); P[0].state="ok"; P[0].body.armL.hp=50; P[0].body.armR.hp=50; g.orderBind(w, P[0], e); window.__e = e.id; window.__dbg = () => JSON.stringify({task: P[0].task, st: P[0].state, d: Math.hypot(P[0].x-e.x,P[0].z-e.z), ts: w.timeScale});')
+    G('const w = g.world; const P0 = w.people.find(x=>x.kind==="party"); const e = w.people.filter(p => p.faction === "bandit").sort((a,b)=>Math.hypot(a.x-P0.x,a.z-P0.z)-Math.hypot(b.x-P0.x,b.z-P0.z))[0]; e.state = "ko"; e.koTimer = 99; e.body.chest.hp = -5; const P = w.people.filter(x=>x.kind==="party"); w.people.filter(p=>p.faction==="bandit" && p!==e).forEach(b=>{ b.state="dead"; }); P[0].state="ok"; P[0].body.armL.hp=50; P[0].body.armR.hp=50; g.orderBind(w, P[0], e); window.__e = e.id; w.timeScale = 3; window.__dbg = () => JSON.stringify({task: P[0].task, st: P[0].state, d: Math.hypot(P[0].x-e.x,P[0].z-e.z), ts: w.timeScale});')
     for _ in range(20):
         pg.wait_for_timeout(1000)
         if G('return g.world.people.find(p => p.id === window.__e).bound === true;'): break
@@ -157,7 +159,7 @@ with sync_playwright() as p:
         pg.wait_for_timeout(700)
         if G('const P = g.world.people.filter(x=>x.kind==="party"); return P[0].carrying === window.__e;'): break
     check('carrying', G('const P = g.world.people.filter(x=>x.kind==="party"); return P[0].carrying === window.__e;'))
-    G('const P = g.world.people.filter(x=>x.kind==="party"); g.rig.target.x = P[0].x; g.rig.target.z = P[0].z; g.rig.dist = 8; P[0].path=[{x:P[0].x+5, z:P[0].z}]; P[0].goal={x:P[0].x+5, z:P[0].z};')
+    G('g.world.timeScale = 1; const P = g.world.people.filter(x=>x.kind==="party"); g.rig.target.x = P[0].x; g.rig.target.z = P[0].z; g.rig.dist = 8; P[0].path=[{x:P[0].x+5, z:P[0].z}]; P[0].goal={x:P[0].x+5, z:P[0].z};')
     pg.wait_for_timeout(900)
     shot('18_carry.png')
     G('g.selected.clear(); const P = g.world.people.filter(x=>x.kind==="party"); g.selected.add(P[1].id); g.openPerson(window.__e, "equip");')
@@ -180,6 +182,59 @@ with sync_playwright() as p:
     pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=3 >> text=保存'); pg.wait_for_timeout(400)
     pg.click('.slot >> nth=3 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1200)
     check('v3_roundtrip', G('return g.world.people.some(p => p.bound) && g.world.people.filter(x=>x.kind==="party").every(p => p.equip);'))
+
+    # ---- Phase 4：町・店・派閥・通行料・地図 ----
+    G('const w = g.world; w.timeScale = 1; w.hour = 10; const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.state="ok"; p.bound=false; p.carrying=null; p.carriedBy=null; p.x = 240 + i*1.5; p.z = -150; p.path=[]; p.goal=null; }); w.people.filter(x=>x.faction==="bandit").forEach(b=>b.state="dead"); g.rig.target.x = 240; g.rig.target.z = -165; g.rig.dist = 38; g.rig.pitch = 0.8; g.selected.clear(); g.selected.add(P[0].id);')
+    pg.wait_for_timeout(2500)
+    shot('21_town.png')
+    check('entered_town', G('return !!(g.world.inTown && g.world.inTown.sunamachi);'))
+    # 店主に話しかけて買う
+    G('const w = g.world; const k = w.people.find(p => p.role === "shopkeeper" && p.town === "sunamachi" && p.shop === "general"); const P = w.people.filter(x=>x.kind==="party"); P[0].x = k.x + 1; P[0].z = k.z + 1; window.__k = k.id; g.talk(k);')
+    pg.wait_for_timeout(400)
+    shot('22_talk.png')
+    pg.click('#dlgBtns >> text=店を見る'); pg.wait_for_timeout(400)
+    shot('23_shop.png')
+    money0 = G('return g.world.money;')
+    pg.click('#shopList [data-i] >> nth=0'); pg.wait_for_timeout(200)
+    check('bought', G('return g.world.money;') < money0)
+    pg.click('#sheet [data-mode="sell"]'); pg.wait_for_timeout(200)
+    money1 = G('return g.world.money;')
+    if pg.query_selector('#shopList [data-sell]'):
+        pg.click('#shopList [data-sell] >> nth=0'); pg.wait_for_timeout(200)
+    check('sold', G('return g.world.money;') > money1)
+    pg.click('#tabs [data-tab="factions"]'); pg.wait_for_timeout(200)
+    shot('24_factions.png')
+    pg.click('#closeSheet')
+    # 賞金首の引き渡し
+    G('const w = g.world; const police = w.people.find(p => p.role === "police" && p.town === "sunamachi"); const boss = w.people.find(p => p.role === "boss"); boss.state = "ko"; boss.koTimer = 99; boss.bound = true; boss.x = police.x + 2; boss.z = police.z + 1; const P = w.people.filter(x=>x.kind==="party"); P[0].x = police.x + 1; P[0].z = police.z - 1; window.__m = w.money; window.__b = boss.bounty; g.talk(police);')
+    pg.wait_for_timeout(300)
+    if pg.query_selector('#dlgBtns >> text=引き渡す'):
+        pg.click('#dlgBtns button >> nth=0'); pg.wait_for_timeout(300)
+    check('bounty', G('return g.world.money >= window.__m + window.__b;'))
+    # 地図
+    G('g.openMap();')
+    pg.wait_for_timeout(6000)
+    G('g.openMap();')
+    pg.wait_for_timeout(500)
+    shot('25_map.png')
+    pg.click('#mapClose')
+    # 通行料（祈りの泉）
+    G('const w = g.world; const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.x = 420 + 60 + i; p.z = 700; }); g.rig.target.x = 440; g.rig.target.z = 700;')
+    pg.wait_for_timeout(800)
+    G('const w = g.world; const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.x = 420 + 20 + i; p.z = 700; });')
+    pg.wait_for_timeout(2500)
+    shot('26_toll.png')
+    check('toll_dialog', pg.is_visible('#dialog') and '通行料' in pg.inner_text('#dlgMsg'))
+    if pg.is_visible('#dialog'):
+        pg.click('#dlgBtns button >> nth=0'); pg.wait_for_timeout(300)
+    G('g.rig.target.x = 420; g.rig.target.z = 690; g.rig.dist = 45;')
+    pg.wait_for_timeout(2500)
+    shot('27_holy_town.png')
+    # セーブ v4 の往復
+    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=1 >> text=保存'); pg.wait_for_timeout(300)
+    if pg.is_visible('#dialog'): pg.click('#dlgBtns >> text=上書き'); pg.wait_for_timeout(400)
+    pg.click('.slot >> nth=1 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1500)
+    check('v4_roundtrip', G('return g.world.people.some(p => p.role === "shopkeeper") && g.world.discovered && g.world.discovered.sunamachi;'))
     b.close()
 srv.shutdown()
 
