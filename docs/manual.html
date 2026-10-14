@@ -1,0 +1,184 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>操作マニュアル｜砂錆の地</title>
+<style>
+:root{--ink:#2b241d;--sub:#6d6154;--accent:#9c5a2c;--line:#e2d7c6;--bg:#faf6ef}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.75 system-ui,"Noto Sans JP","Noto Sans CJK JP",sans-serif}
+main{max-width:720px;margin:0 auto;padding:24px 18px 48px}
+h1{font-size:24px;line-height:1.35;margin:0 0 4px;padding-bottom:12px;border-bottom:3px solid var(--accent)}
+h1+p{color:var(--sub);font-size:14px;margin-top:8px}
+h2{font-size:19px;margin:32px 0 10px;padding-left:10px;border-left:5px solid var(--accent)}
+h3{font-size:16px;margin:22px 0 6px;color:var(--accent)}
+table{width:100%;border-collapse:collapse;margin:10px 0 14px;font-size:15px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#efe5d6}
+li{margin:4px 0}
+strong{color:#7a3f1c}
+@media print{body{background:#fff}main{max-width:none;padding:0}h2{break-after:avoid}table,tr{break-inside:avoid}}
+</style></head><body><main><h1 id="砂錆の地-rustwaste-操作マニュアル">砂錆の地 RUSTWASTE
+操作マニュアル</h1>
+<p>対象：Phase 0（描画基盤の検証版）　※フェーズごとに更新します</p>
+<h2 id="1-このゲームについて">1. このゲームについて</h2>
+<p>砂と錆に覆われた荒野で生き延びる、オープンワールドのサバイバルRPGです。主人公もメインストーリーも勝利条件もありません。目標は自分で決めます。序盤は無力で、負けたり捕まったりしながら這い上がっていくこと自体が楽しさになるよう設計しています。</p>
+<p>現在の版（Phase
+0）は、スマホで3D表示が快適に動くかを確かめるための検証版です。人物の操作・戦闘・建築などは次のフェーズ以降で追加されます。</p>
+<h2 id="2-はじめ方">2. はじめ方</h2>
+<ol type="1">
+<li>公開URLをAndroid Chromeで開きます</li>
+<li>タイトル画面右上の「ビルド番号」と日時で、最新版かどうかを確認できます</li>
+<li>「はじめる」を押すとゲームが始まり、可能な端末では全画面になります</li>
+</ol>
+<h3 id="ホーム画面に追加する">ホーム画面に追加する</h3>
+<p>Chromeのメニュー（右上の︙）→「ホーム画面に追加」で、アプリのように全画面で起動できます。</p>
+<h3 id="縦画面で遊びます">縦画面で遊びます</h3>
+<p>横向きにすると「縦にしてください」と表示されます。</p>
+<h2 id="3-画面の見方">3. 画面の見方</h2>
+<table>
+<thead>
+<tr class="header">
+<th>場所</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>左上</td>
+<td>日数・朝昼夕夜・時刻</td>
+</tr>
+<tr class="even">
+<td>右上</td>
+<td>時間の速さ（停止／0.5／1x／2x／3x）</td>
+</tr>
+<tr class="odd">
+<td>左（緑の文字）</td>
+<td>デバッグ表示（fps・描画負荷など）</td>
+</tr>
+<tr class="even">
+<td>左下</td>
+<td>追従、早送り×60</td>
+</tr>
+<tr class="odd">
+<td>右下</td>
+<td>設定</td>
+</tr>
+</tbody>
+</table>
+<h2 id="4-カメラの操作">4. カメラの操作</h2>
+<table>
+<thead>
+<tr class="header">
+<th>操作</th>
+<th>動き</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1本指でドラッグ</td>
+<td>カメラを移動（指を離すと少し滑ります）</td>
+</tr>
+<tr class="even">
+<td>2本指でつまむ・広げる</td>
+<td>ズームアウト・ズームイン</td>
+</tr>
+<tr class="odd">
+<td>2本指でひねる</td>
+<td>水平方向に回転</td>
+</tr>
+<tr class="even">
+<td>2本指で上下になぞる</td>
+<td>見下ろす角度を調整（一定範囲内）</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>追従</strong>：近くの人物をカメラが追いかけます。1本指でドラッグすると解除されます</li>
+<li><strong>早送り×60</strong>：時間を60倍で進めます。昼夜の移り変わりを確認する検証用の機能です</li>
+</ul>
+<h2 id="5-時間">5. 時間</h2>
+<p>ゲーム内の1日は、1x
+のとき現実の約20分です。アプリを閉じている間は時間は進みません。いつ中断しても損をしない作りです。</p>
+<p>アプリを切り替えたり画面を消したりすると、自動で一時停止し描画も止まります（自動セーブは
+Phase 1 で追加します）。</p>
+<h2 id="6-設定右下設定">6. 設定（右下「設定」）</h2>
+<h3 id="画質">画質</h3>
+<table>
+<thead>
+<tr class="header">
+<th>設定</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>自動</td>
+<td>初回起動時に端末の性能を数秒計測し、低・中・高から自動で選びます</td>
+</tr>
+<tr class="even">
+<td>低</td>
+<td>影なし・描画距離128m・解像度1.0倍。古い端末向け</td>
+</tr>
+<tr class="odd">
+<td>中</td>
+<td>影あり・描画距離192m・解像度1.25倍。標準</td>
+</tr>
+<tr class="even">
+<td>高</td>
+<td>高精細な影・描画距離256m・解像度1.5倍</td>
+</tr>
+</tbody>
+</table>
+<h3 id="表示">表示</h3>
+<ul>
+<li><strong>解像度の自動調整</strong>：動きが重くなると描画解像度を自動で下げ、余裕が戻ると元に戻します。画面が少しぼやけるときはこれが働いています</li>
+<li><strong>デバッグ表示</strong>：fps（1秒あたりの描画回数）、ms（1回の描画時間）、call（描画命令の数）、tri（三角形の数）、現在の画質と解像度を表示します</li>
+</ul>
+<h3 id="その他">その他</h3>
+<ul>
+<li><strong>振動</strong>：被ダメージや襲撃開始時の振動（Phase 3
+以降で使用）のオン・オフ</li>
+<li><strong>全画面</strong>：全画面表示に切り替えます</li>
+</ul>
+<h2 id="7-不具合の報告方法">7. 不具合の報告方法</h2>
+<p>エラーが起きると、画面上部に赤枠の「エラーが発生しました」パネルが出ます。「コピー」を押して、その内容をそのまま貼り付けて送ってください。ビルド番号と端末情報も自動で含まれます。</p>
+<p>動作が重い場合は、デバッグ表示の fps
+と画質をあわせてお知らせください。</p>
+<h2 id="8-今後の予定">8. 今後の予定</h2>
+<table>
+<thead>
+<tr class="header">
+<th>フェーズ</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Phase 1</td>
+<td>人物の選択・移動・長押しメニュー、経路探索、時間操作、自動セーブ</td>
+</tr>
+<tr class="even">
+<td>Phase 2</td>
+<td>部位ごとの体力と欠損、能力の成長、空腹、気絶・死亡・治療</td>
+</tr>
+<tr class="odd">
+<td>Phase 3</td>
+<td>戦闘、武器、敵、捕縛</td>
+</tr>
+<tr class="even">
+<td>Phase 4</td>
+<td>派閥、町、店、仲間の雇用、交易</td>
+</tr>
+<tr class="odd">
+<td>Phase 5</td>
+<td>拠点建築、資源の加工、仕事の割り当て、研究</td>
+</tr>
+<tr class="even">
+<td>Phase 6</td>
+<td>襲撃、天候、世界の自律的な出来事、遺跡探索、効果音</td>
+</tr>
+<tr class="odd">
+<td>Phase 7</td>
+<td>調整と仕上げ</td>
+</tr>
+</tbody>
+</table>
+</main></body></html>

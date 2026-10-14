@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#2a221b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>__TITLE__</title>
+<style>
+:root{
+  --ink:#efe6d6; --ink2:#b9ab95; --panel:rgba(28,23,19,.82); --panel2:rgba(46,38,31,.9);
+  --line:rgba(239,230,214,.14); --accent:#d08a4e; --accent2:#e9b47a; --bad:#c9573f;
+  --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,0px);
+  --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#1a1612;color:var(--ink);overflow:hidden;
+  font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP","Noto Sans CJK JP",sans-serif;font-size:15px;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none;touch-action:none}
+canvas#view{position:fixed;inset:0;width:100vw;height:100dvh;display:block;touch-action:none}
+button{font:inherit;color:inherit}
+.btn{min-height:48px;min-width:48px;padding:0 16px;border-radius:12px;border:1px solid var(--line);
+  background:var(--panel2);color:var(--ink);font-size:15px;font-weight:600;letter-spacing:.02em}
+.btn:active{transform:scale(.97);background:#5a4634}
+.btn.primary{background:linear-gradient(180deg,#c47c41,#9c5a2c);border-color:#e0a46a55;color:#fff6ea}
+.btn.ghost{background:transparent}
+.btn.on{background:#6d4a2e;border-color:var(--accent)}
+
+/* タイトル */
+#title{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;justify-content:flex-end;
+  padding:calc(24px + var(--st)) calc(24px + var(--sr)) calc(28px + var(--sb)) calc(24px + var(--sl));
+  background:linear-gradient(180deg,rgba(20,16,13,.0) 0%,rgba(20,16,13,.35) 45%,rgba(20,16,13,.92) 100%)}
+#title .logo{font-size:44px;font-weight:800;letter-spacing:.12em;line-height:1.1;text-shadow:0 2px 24px rgba(0,0,0,.6)}
+#title .sub{font-size:14px;letter-spacing:.5em;color:var(--accent2);margin:6px 0 4px}
+#title .tag{font-size:14px;color:var(--ink2);margin-bottom:28px;line-height:1.7}
+#title .col{display:flex;flex-direction:column;gap:12px}
+#title .btn{min-height:56px;font-size:17px}
+#title .build{position:absolute;right:calc(14px + var(--sr));top:calc(12px + var(--st));font-size:14px;color:var(--ink2);
+  text-align:right;line-height:1.5;background:rgba(0,0,0,.25);padding:6px 10px;border-radius:8px}
+#title.hide{display:none}
+#loading{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:#1a1612;font-size:15px;color:var(--ink2)}
+#loading.hide{display:none}
+
+/* HUD */
+#hud{position:fixed;inset:0;z-index:10;pointer-events:none}
+#hud.hide{display:none}
+#hud .top{position:absolute;left:0;right:0;top:0;padding:calc(8px + var(--st)) calc(10px + var(--sr)) 8px calc(10px + var(--sl));
+  display:flex;align-items:center;gap:8px;background:linear-gradient(180deg,rgba(18,14,11,.75),rgba(18,14,11,0))}
+#clock{pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 12px;min-height:48px;
+  display:flex;flex-direction:column;justify-content:center;font-size:14px;line-height:1.25}
+#clock b{font-size:18px;font-variant-numeric:tabular-nums}
+#speeds{margin-left:auto;display:flex;gap:4px;pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:3px}
+#speeds .btn{min-width:44px;min-height:44px;padding:0 6px;border:none;background:transparent;font-size:14px}
+#speeds .btn.on{background:#6d4a2e}
+#hud .bottom{position:absolute;left:0;right:0;bottom:0;padding:10px calc(10px + var(--sr)) calc(10px + var(--sb)) calc(10px + var(--sl));
+  display:flex;gap:8px;justify-content:space-between;align-items:flex-end;background:linear-gradient(0deg,rgba(18,14,11,.75),rgba(18,14,11,0))}
+#hud .bottom .grp{display:flex;gap:8px;pointer-events:auto}
+#hud .bottom .btn{min-height:52px;font-size:14px;padding:0 12px}
+#debug{position:absolute;left:calc(10px + var(--sl));top:calc(70px + var(--st));background:rgba(0,0,0,.55);padding:6px 9px;border-radius:8px;
+  font:14px/1.45 ui-monospace,Menlo,Consolas,monospace;color:#d8f0c0;white-space:pre}
+#debug.hide{display:none}
+#phaseTag{position:absolute;right:calc(10px + var(--sr));top:calc(70px + var(--st));font-size:14px;color:var(--ink2);background:rgba(0,0,0,.35);padding:4px 8px;border-radius:8px}
+
+/* シート */
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--panel2);border-top:1px solid var(--line);
+  border-radius:18px 18px 0 0;padding:10px calc(16px + var(--sr)) calc(16px + var(--sb)) calc(16px + var(--sl));
+  transform:translateY(105%);transition:transform .22s ease;max-height:78dvh;overflow:auto;touch-action:pan-y}
+#sheet.open{transform:none}
+#sheet .grab{width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
+#sheet h3{margin:14px 0 8px;font-size:15px;color:var(--accent2)}
+#sheet .row{display:flex;gap:8px;flex-wrap:wrap}
+#sheet .row .btn{flex:1}
+#sheet .note{font-size:14px;color:var(--ink2);line-height:1.6;margin-top:8px}
+#scrim{position:fixed;inset:0;z-index:15;background:rgba(0,0,0,.35);display:none}
+#scrim.show{display:block}
+
+/* 通知 */
+#toast{position:fixed;left:50%;bottom:calc(90px + var(--sb));transform:translateX(-50%);z-index:25;background:var(--panel2);
+  border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:86vw;text-align:center}
+#toast.show{opacity:1}
+
+/* 縦向き案内 */
+#rotate{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:#1a1612;font-size:17px}
+#rotate .ico{font-size:44px}
+@media (orientation:landscape) and (max-height:540px){#rotate{display:flex}}
+
+/* エラー */
+#errPanel{position:fixed;left:10px;right:10px;top:calc(10px + var(--st));z-index:80;background:#2b1712;border:1px solid var(--bad);border-radius:12px;padding:12px}
+#errPanel .errHead{font-weight:700;color:#ffb39f;margin-bottom:6px}
+#errPanel .errBody{max-height:40dvh;overflow:auto;font-size:14px;white-space:pre-wrap;word-break:break-all;margin:0 0 10px;-webkit-user-select:text;user-select:text;touch-action:pan-y}
+#errPanel .errBtns{display:flex;gap:8px}
+#errPanel .errBtns .btn{flex:1}
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="loading">世界を生成しています…</div>
+
+<div id="title">
+  <div class="build">ビルド __BUILD__<br>__BUILD_TIME__</div>
+  <div class="logo">__TITLE__</div>
+  <div class="sub">__SUBTITLE__</div>
+  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 0：描画基盤の検証版</div>
+  <div class="col">
+    <button class="btn primary" id="startBtn">はじめる</button>
+    <button class="btn" id="manualBtn">操作マニュアル</button>
+  </div>
+</div>
+
+<div id="hud" class="hide">
+  <div class="top">
+    <div id="clock"><span id="dayLabel">1日目</span><b id="timeLabel">--:--</b></div>
+    <div id="speeds">
+      <button class="btn" data-s="0">停止</button>
+      <button class="btn" data-s="0.5">0.5</button>
+      <button class="btn on" data-s="1">1x</button>
+      <button class="btn" data-s="2">2x</button>
+      <button class="btn" data-s="3">3x</button>
+    </div>
+  </div>
+  <div id="debug"></div>
+  <div id="phaseTag">検証版</div>
+  <div class="bottom">
+    <div class="grp">
+      <button class="btn" id="followBtn">追従</button>
+      <button class="btn" id="ffBtn">早送り×60</button>
+    </div>
+    <div class="grp">
+      <button class="btn" id="menuBtn">設定</button>
+    </div>
+  </div>
+</div>
+
+<div id="scrim"></div>
+<div id="sheet">
+  <div class="grab"></div>
+  <h3>画質</h3>
+  <div class="row" id="qRow">
+    <button class="btn" data-q="auto">自動</button>
+    <button class="btn" data-q="low">低</button>
+    <button class="btn" data-q="mid">中</button>
+    <button class="btn" data-q="high">高</button>
+  </div>
+  <div class="note" id="qNote"></div>
+  <h3>表示</h3>
+  <div class="row">
+    <button class="btn" id="dynBtn">解像度の自動調整</button>
+    <button class="btn" id="dbgBtn">デバッグ表示</button>
+  </div>
+  <h3>その他</h3>
+  <div class="row">
+    <button class="btn" id="vibBtn">振動</button>
+    <button class="btn" id="manualBtn2">操作マニュアル</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button class="btn" id="fsBtn">全画面</button>
+    <button class="btn" id="closeSheet">閉じる</button>
+  </div>
+  <div class="note">ビルド __BUILD__（__BUILD_TIME__）</div>
+</div>
+
+<div id="toast"></div>
+<div id="rotate"><div class="ico">📱</div>縦にしてください</div>
+
+<script>__SCRIPT__</script>
+</body>
+</html>
