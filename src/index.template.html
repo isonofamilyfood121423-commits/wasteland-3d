@@ -73,9 +73,41 @@ button{font:inherit;color:inherit}
 .face span{font-size:14px;line-height:1.1;white-space:nowrap;overflow:hidden;max-width:58px}
 .face.sel{border-color:var(--good);background:rgba(60,90,58,.85)}
 .face.moving span::after{content:"›";color:var(--good);margin-left:2px}
+.face .hpb{width:46px;height:4px;border-radius:2px;background:rgba(0,0,0,.5);overflow:hidden}
+.face .hpb i{display:block;height:100%;background:var(--good)}
+.face .st{font-size:14px;line-height:1;color:#ffb39f;height:14px}
+.face.ko{border-color:#d8823f}
+.face.dead{opacity:.5}
+.face.bleeding img{box-shadow:0 0 0 2px #e0533f}
+/* 人物の詳細 */
+.phead{display:flex;gap:10px;align-items:center;margin:4px 0 8px}
+.phead img{width:52px;height:52px;border-radius:10px}
+.phead .info{flex:1;font-size:14px;line-height:1.45}
+.phead .info b{font-size:17px}
+.subtabs{display:flex;gap:6px;margin-bottom:8px}
+.subtabs .btn{flex:1;min-height:44px}
+.bodywrap{display:flex;gap:10px;align-items:flex-start}
+.plist{flex:1;min-width:0}
+.prow{display:flex;align-items:center;gap:6px;font-size:14px;padding:4px 0;border-bottom:1px solid var(--line)}
+.prow i{width:12px;height:12px;border-radius:3px;flex:0 0 auto}
+.prow span:nth-child(2){width:34px;flex:0 0 auto}
+.prow .pv{flex:1;text-align:right}
+.bleed{color:#ff8f7a;white-space:nowrap}
+.stat{display:flex;align-items:center;gap:8px;font-size:14px;margin-top:8px}
+.stat span{width:76px;flex:0 0 auto;color:var(--ink2)}
+.stat em{font-style:normal;min-width:44px;text-align:right;font-variant-numeric:tabular-nums}
+.bar{flex:1;height:10px;border-radius:5px;background:rgba(0,0,0,.45);overflow:hidden}
+.bar.thin{height:6px}
+.bar i{display:block;height:100%;background:#c9a24f}
+.srow{display:grid;grid-template-columns:76px 34px 1fr;align-items:center;gap:4px 8px;font-size:14px;padding:6px 0;border-bottom:1px solid var(--line)}
+.srow b{font-size:16px;text-align:right}
+.srow small{grid-column:1/-1;font-size:14px}
+.irow{display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--line);padding:6px 0}
+.irow .info{flex:1;font-size:14px;line-height:1.4}
+.irow .btn{min-width:56px;padding:0 8px;font-size:14px}
 #actions{display:flex;gap:6px;pointer-events:auto}
 #actions .btn{flex:1;min-height:52px;padding:0 6px;font-size:14px}
-#actions .btn.menu{flex:0 0 64px}
+#actions .btn.menu{flex:0 0 52px;font-size:20px}
 
 /* 範囲選択の矩形・案内 */
 #selRect{position:fixed;z-index:12;border:2px solid var(--good);background:rgba(111,210,122,.12);pointer-events:none;border-radius:4px}
@@ -152,7 +184,7 @@ button{font:inherit;color:inherit}
   <div class="build">ビルド __BUILD__<br>__BUILD_TIME__</div>
   <div class="logo">__TITLE__</div>
   <div class="sub">__SUBTITLE__</div>
-  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 1：操作と移動の検証版</div>
+  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 2：体と治療の検証版</div>
   <div class="col">
     <button class="btn primary cont hide" id="contBtn">つづきから<small id="contInfo"></small></button>
     <button class="btn" id="newBtn">はじめから</button>
@@ -177,11 +209,12 @@ button{font:inherit;color:inherit}
   <div class="bottom">
     <div id="party"></div>
     <div id="actions">
-      <button class="btn" id="boxBtn">範囲選択</button>
+      <button class="btn" id="boxBtn">範囲</button>
       <button class="btn" id="allBtn">全員</button>
       <button class="btn" id="followBtn">追従</button>
-      <button class="btn" id="stopBtn">その場で待機</button>
-      <button class="btn menu" id="menuBtn">メニュー</button>
+      <button class="btn" id="stopBtn">待機</button>
+      <button class="btn" id="restBtn">休む</button>
+      <button class="btn menu" id="menuBtn" aria-label="メニュー">☰</button>
     </div>
   </div>
 </div>

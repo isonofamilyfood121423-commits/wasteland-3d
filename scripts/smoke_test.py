@@ -39,7 +39,9 @@ with sync_playwright() as p:
 
     # 地面タップで移動（選択中＝1人目）
     p0 = G('const p = g.world.people.find(x => x.kind === "party"); return {x: p.x, z: p.z, id: p.id};')
-    pg.touchscreen.tap(200, 330)
+    # 人のいない地面を探してタップ（顔ぶれと位置は毎回ランダム）
+    spot = pg.evaluate('''() => { const g = window.__game; for (const [x, y] of [[200,330],[120,300],[290,300],[200,250],[100,420],[300,430],[60,250],[330,250]]) if (!g.pick(x, y)) return [x, y]; return [200,330]; }''')
+    pg.touchscreen.tap(*spot)
     pg.wait_for_timeout(300)
     moving = G(f'const p = g.world.people.find(x => x.id === {p0["id"]}); return !!p.goal || p.path.length > 0;')
     check('tap_ground_moves', moving)
@@ -103,6 +105,40 @@ with sync_playwright() as p:
     pg.fill('#dlgText', text); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1200)
     check('import_text', G('return g.world.people.length > 3;'))
     shot('9_after_import.png')
+
+    # ---- Phase 2：負傷・治療・欠損・休息 ----
+    pg.tap('#allBtn')
+    G('const P = g.world.people.filter(x=>x.kind==="party"); g.rig.target.x = P[0].x; g.rig.target.z = P[0].z; g.rig.dist = 9; g.rig.pitch = 0.7; P.forEach(p=>{p.path=[];p.goal=null;});')
+    G('const P = g.world.people.filter(x=>x.kind==="party"); g.debug.hurt(g.world, P[0]); g.debug.hurt(g.world, P[0]); g.debug.heavy(g.world, P[0]);')
+    pg.wait_for_timeout(600)
+    check('injured', G('const p = g.world.people.find(x=>x.kind==="party"); return p.state !== "ok" || Object.values(p.body).some(b=>b.bleed>0);'))
+    shot('10_injured.png')
+    G('const p = g.world.people.find(x=>x.kind==="party"); g.openPerson(p.id, "body");')
+    pg.wait_for_timeout(400)
+    shot('11_body_sheet.png')
+    pg.click('.subtabs [data-sub="skills"]'); pg.wait_for_timeout(200); shot('12_skills.png')
+    pg.click('.subtabs [data-sub="inv"]'); pg.wait_for_timeout(200); shot('13_inventory.png')
+    pg.click('#closeSheet')
+    # 治療（自動の止血＋指示による治療）を早送りで進める
+    G('const P = g.world.people.filter(x=>x.kind==="party"); g.orderTreat(g.world, [P[1].id], P[0].id); g.world.debugFast = true;')
+    pg.wait_for_timeout(1200)
+    shot('14_treating.png')
+    pg.wait_for_timeout(2500)
+    G('g.world.debugFast = false;')
+    check('bleeding_stopped', G('const p = g.world.people.find(x=>x.kind==="party"); return Object.values(p.body).every(b=>b.bleed===0);'))
+    # 脚を失う → 這う
+    G('const P = g.world.people.filter(x=>x.kind==="party"); g.debug.loseLeg(g.world, P[2]); g.debug.loseLeg(g.world, P[2]); P[2].body.chest.hp = 80; P[2].blood = 100; P[2].state = "ok"; Object.values(P[2].body).forEach(b=>b.bleed=0); g.rig.target.x = P[2].x; g.rig.target.z = P[2].z;')
+    G('const P = g.world.people.filter(x=>x.kind==="party"); P[2].path=[{x:P[2].x+6,z:P[2].z}]; P[2].goal={x:P[2].x+6,z:P[2].z};')
+    pg.wait_for_timeout(1500)
+    check('crawl', G('const P = g.world.people.filter(x=>x.kind==="party"); return P[2].moveMode === "crawl";'))
+    shot('15_crawl.png')
+    G('const P = g.world.people.filter(x=>x.kind==="party"); g.orderRest(g.world, [P[1].id]); g.rig.target.x = P[1].x; g.rig.target.z = P[1].z;')
+    pg.wait_for_timeout(800)
+    shot('16_rest.png')
+    # セーブ v2 の往復
+    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=2 >> text=保存'); pg.wait_for_timeout(400)
+    pg.click('.slot >> nth=2 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1200)
+    check('v2_roundtrip', G('const P = g.world.people.filter(x=>x.kind==="party"); return P[2].body.legL.lost && P[2].body.legR.lost && P[0].skills && P[0].inv;'))
     b.close()
 srv.shutdown()
 

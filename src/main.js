@@ -5,7 +5,10 @@ import { FrameStats, DynamicResolution, QualityProbe } from './core/perf.js';
 import { loadSettings, saveSettings } from './core/settings.js';
 import { serialize, deserialize, saveSlot, loadSlot, deleteSlot, listSlots, exportText, importText, SLOT_IDS, slotLabel } from './core/save.js';
 import { QUALITY, DPR_HARD_CAP, CAMERA, WORLD, CROWD, PARTY, SAVE } from './data/config.js';
-import { createWorld, stepWorld, orderMove, stopPerson, partyOf, personById, addLog } from './sim/world.js';
+import { createWorld, stepWorld, orderMove, orderRest, orderTreat, stopPerson, partyOf, personById, addLog, attachRuntime, attachProsthetic, debug } from './sim/world.js';
+import { healthPct, totalBleed, eat, partsNeedingAid, addItem } from './sim/body.js';
+import { RACES, ITEMS, PART } from './data/body.js';
+import { renderBody, renderSkills, renderInventory, stateText } from './ui/personSheet.js';
 import { Atmosphere } from './render/atmosphere.js';
 import { TerrainView } from './render/terrainView.js';
 import { HumanView } from './render/humanView.js';
@@ -93,12 +96,15 @@ const openManual = () => window.open('docs/manual.html', '_blank');
 // 世界の開始・セーブ・ロード
 // =====================================================================
 let running = false;
+let gameOverShown = false;
 
 function cameraState() { return { x: rig.target.x, z: rig.target.z, yaw: rig.yaw, pitch: rig.pitch, dist: rig.dist }; }
 
 function startWorld(w, cam) {
   world = w;
+  attachRuntime(world);
   world.onLog = (text) => toast(text);
+  gameOverShown = false;
   humans.reset();
   selected.clear(); inspected = null; rig.follow = null;
   const party = partyOf(world);
@@ -180,10 +186,14 @@ function renderParty() {
     const el = document.createElement('button');
     el.className = 'face';
     el.dataset.id = p.id;
-    el.innerHTML = `<img src="${faceIcon(p)}" alt=""><span>${p.name}</span>`;
+    el.innerHTML = `<img src="${faceIcon(p)}" alt=""><span>${p.name}</span><div class="hpb"><i></i></div><div class="st"></div>`;
     el.onclick = () => {
-      // すでに1人だけ選択中なら、カメラをその人へ
-      if (selected.size === 1 && selected.has(p.id)) { centerOn(p); return; }
+      // すでに1人だけ選択中なら、カメラをその人へ（さらに押すと詳細）
+      if (selected.size === 1 && selected.has(p.id)) {
+        if (Math.hypot(rig.target.x - p.x, rig.target.z - p.z) < 3) openPerson(p.id, 'body');
+        else centerOn(p);
+        return;
+      }
       selectOnly(p.id);
     };
     box.appendChild(el);
@@ -194,7 +204,17 @@ function updatePartyMarks() {
   document.querySelectorAll('#party .face').forEach((el) => {
     const p = personById(world, +el.dataset.id);
     el.classList.toggle('sel', selected.has(+el.dataset.id));
-    el.classList.toggle('moving', !!(p && p.path.length));
+    if (!p) return;
+    el.classList.toggle('moving', !!p.path.length);
+    el.classList.toggle('ko', p.state === 'ko');
+    el.classList.toggle('dead', p.state === 'dead');
+    el.classList.toggle('bleeding', totalBleed(p) > 0.05 && p.state !== 'dead');
+    const hp = healthPct(p);
+    const bar = el.querySelector('.hpb i');
+    bar.style.width = Math.round(hp * 100) + '%';
+    bar.style.background = hp > 0.66 ? '#6fd27a' : hp > 0.33 ? '#d8c35a' : '#c9573f';
+    const st = p.state === 'dead' ? '死亡' : p.state === 'ko' ? '気絶' : totalBleed(p) > 0.05 ? '出血' : p.task?.kind === 'treat' ? '治療' : p.task?.kind === 'rest' ? '休息' : '';
+    el.querySelector('.st').textContent = st;
   });
 }
 function selectOnly(id) { selected.clear(); selected.add(id); inspected = null; updatePartyMarks(); }
@@ -206,6 +226,12 @@ $('stopBtn').onclick = () => {
   const s = selectedParty();
   if (!s.length) { toast('仲間を選択してください'); return; }
   s.forEach(stopPerson); toast('その場で待機します');
+};
+$('restBtn').onclick = () => {
+  const s = selectedParty().filter((p) => p.state === 'ok');
+  if (!s.length) { toast('休ませる仲間を選択してください'); return; }
+  orderRest(world, s.map((p) => p.id));
+  toast('座って休みます（回復が速くなります）');
 };
 $('followBtn').onclick = () => {
   if (rig.follow) { rig.follow = null; $('followBtn').classList.remove('on'); toast('追従を解除しました'); return; }
@@ -328,25 +354,52 @@ rig.onLongPress = async (x, y) => {
   ]);
 };
 
+function treatWith(patient) {
+  // 選択中の仲間で治療する。だれも選んでいなければ本人が自分で手当て
+  let medics = selectedParty().filter((m) => m.state === 'ok');
+  if (!medics.length && patient.kind === 'party' && patient.state === 'ok') medics = [patient];
+  if (!medics.length) { toast('治療する仲間を選択してください'); return; }
+  if (!partsNeedingAid(patient).length) { toast(`${patient.name}は治療の必要がありません`); return; }
+  orderTreat(world, medics.map((m) => m.id), patient.id);
+  toast(`${medics.map((m) => m.name).join('・')}が${medics.length === 1 && medics[0] === patient ? '自分' : patient.name}を手当てします`);
+}
+
+function debugActions(p) {
+  showActions('検証用', `${p.name}（戦闘ができるまでの確認用）`, [
+    { label: '負傷させる', run: () => debug.hurt(world, p) },
+    { label: '重傷を負わせる', run: () => debug.heavy(world, p) },
+    { label: '脚を失わせる', run: () => debug.loseLeg(world, p) },
+    { label: '空腹にする', run: () => { debug.starve(world, p); toast(`${p.name}を空腹にしました`); } },
+    { label: '義肢を持たせる', run: () => debug.giveLimb(world, p) },
+    { label: '包帯を5つ渡す', run: () => { const id = RACES[p.race].aid === 'repair' ? 'repair_kit' : 'bandage'; addItem(p, id, 5); toast(`${ITEMS[id].label}を5つ渡しました`); } },
+  ]);
+}
+
 function personActions(p) {
+  const dead = p.state === 'dead';
   if (p.kind === 'party') {
-    showActions(p.name, '仲間', [
+    const acts = [
       { label: '選択する', run: () => selectOnly(p.id) },
-      { label: 'カメラで追う', run: () => followPerson(p) },
+      { label: '体の状態', run: () => openPerson(p.id, 'body') },
+      { label: '治療する', run: () => treatWith(p) },
+      { label: '持ち物', run: () => openPerson(p.id, 'inv') },
+      { label: '休む', run: () => { orderRest(world, [p.id]); } },
       { label: 'その場で待機', run: () => stopPerson(p) },
-      { label: '体の状態', phase: 'Phase 2' },
-      { label: '持ち物', phase: 'Phase 2' },
-      { label: '治療する', phase: 'Phase 2' },
-    ]);
+      { label: 'カメラで追う', run: () => followPerson(p) },
+      { label: '検証メニュー', run: () => debugActions(p) },
+    ];
+    showActions(p.name, `仲間・${stateText(p)}`, dead ? acts.filter((x) => ['体の状態', '持ち物', 'カメラで追う'].includes(x.label)) : acts);
   } else {
     inspected = p;
-    showActions(p.name, '流れ者', [
+    showActions(p.name, `流れ者・${RACES[p.race].label}・${stateText(p)}`, [
       { label: '話す', phase: 'Phase 4' },
       { label: '攻撃する', phase: 'Phase 3' },
       { label: '担ぐ', phase: 'Phase 3' },
-      { label: '治療する', phase: 'Phase 2' },
+      { label: '治療する', run: () => treatWith(p) },
+      { label: '体の状態', run: () => openPerson(p.id, 'body') },
       { label: 'カメラで追う', run: () => followPerson(p) },
       { label: 'そばへ移動', run: () => moveSelectedTo(p.x + 1.2, p.z + 1.2) },
+      { label: '検証メニュー', run: () => debugActions(p) },
     ]);
   }
 }
@@ -374,7 +427,65 @@ function renderSheet() {
   });
   const body = $('sheetBody');
   body.innerHTML = '';
-  ({ party: sheetParty, save: sheetSave, log: sheetLog, settings: sheetSettings })[sheetTab](body);
+  ({ party: sheetParty, save: sheetSave, log: sheetLog, settings: sheetSettings, person: sheetPerson })[sheetTab](body);
+}
+
+let personId = null, personSub = 'body';
+function openPerson(id, sub = 'body') { personId = id; personSub = sub; closePop(); openSheet('person'); }
+
+function sheetPerson(body) {
+  const p = personById(world, personId);
+  if (!p) { sheetTab = 'party'; renderSheet(); return; }
+  const race = RACES[p.race];
+  body.innerHTML = `
+    <div class="phead"><img src="${faceIcon(p)}" alt=""><div class="info"><b>${p.name}</b> <span class="muted">${p.surname}</span><br>${p.kind === 'party' ? '仲間' : '流れ者'}・${race.label}・${stateText(p)}</div></div>
+    <div class="subtabs">${[['body', '体'], ['skills', '能力'], ['inv', '持ち物']].map(([k, l]) => `<button class="btn ${personSub === k ? 'on' : ''}" data-sub="${k}">${l}</button>`).join('')}</div>
+    <div id="psub"></div>`;
+  body.querySelectorAll('[data-sub]').forEach((b) => { b.onclick = () => { personSub = b.dataset.sub; renderSheet(); }; });
+  const sub = body.querySelector('#psub');
+  if (personSub === 'body') {
+    sub.innerHTML = renderBody(p);
+    if (p.state !== 'dead') {
+      const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '10px';
+      const t = document.createElement('button'); t.className = 'btn'; t.textContent = '治療する';
+      t.onclick = () => { treatWith(p); closeSheet(); };
+      row.appendChild(t);
+      if (p.kind === 'party' && p.state === 'ok') {
+        const r = document.createElement('button'); r.className = 'btn'; r.textContent = '休む';
+        r.onclick = () => { orderRest(world, [p.id]); closeSheet(); toast(`${p.name}は座って休みます`); };
+        row.appendChild(r);
+      }
+      sub.appendChild(row);
+    }
+  } else if (personSub === 'skills') {
+    sub.innerHTML = renderSkills(p);
+  } else {
+    const lost = ['armL', 'armR', 'legL', 'legR'].filter((id) => p.body[id].lost && !p.body[id].prosthetic);
+    const mine = p.kind === 'party';
+    sub.innerHTML = renderInventory(p, mine && race.eats && p.state === 'ok', mine ? lost : []);
+    if (!mine) sub.querySelectorAll('[data-act]').forEach((b) => b.remove());
+    sub.querySelectorAll('[data-act]').forEach((b) => {
+      b.onclick = async () => {
+        const id = b.dataset.id, act = b.dataset.act;
+        if (act === 'eat') { if (eat(world, p, id)) toast(`${p.name}は${ITEMS[id].label}を食べた`); }
+        if (act === 'attach') {
+          const part = lost.length === 1 ? lost[0] : (await ask('どこに付けますか？', lost.map((l) => ({ label: PART[l].label, value: l })).concat([{ label: 'やめる', value: null }]))).value;
+          if (part) attachProsthetic(world, p, part, id);
+        }
+        if (act === 'give') {
+          const others = partyOf(world).filter((m) => m !== p && m.state !== 'dead');
+          if (!others.length) { toast('渡せる仲間がいません'); return; }
+          const r = await ask(`${ITEMS[id].label}をだれに渡しますか？`, others.map((m) => ({ label: m.name, value: m.id })).concat([{ label: 'やめる', value: null }]));
+          if (r.value) {
+            const to = personById(world, r.value);
+            const st = p.inv.find((x) => x.id === id);
+            if (st) { st.qty--; if (st.qty <= 0) p.inv.splice(p.inv.indexOf(st), 1); const t2 = to.inv.find((x) => x.id === id); if (t2) t2.qty++; else to.inv.push({ id, qty: 1 }); toast(`${to.name}に${ITEMS[id].label}を渡した`); }
+          }
+        }
+        renderSheet();
+      };
+    });
+  }
 }
 
 function sheetParty(body) {
@@ -382,17 +493,20 @@ function sheetParty(body) {
   for (const p of partyOf(world)) {
     const d = document.createElement('div');
     d.className = 'member';
-    const state = p.path.length ? '移動中' : '待機中';
-    d.innerHTML = `<img src="${faceIcon(p)}" alt=""><div class="info"><b>${p.name}</b> <span class="muted">${p.surname}</span><br>${state}・位置 ${Math.round(p.x)}, ${Math.round(p.z)}</div>`;
+    d.innerHTML = `<img src="${faceIcon(p)}" alt=""><div class="info"><b>${p.name}</b> <span class="muted">${RACES[p.race].label}</span><br>${stateText(p)}・体力 ${Math.round(healthPct(p) * 100)}%</div>`;
     const b = document.createElement('button');
-    b.className = 'btn'; b.textContent = '見る';
-    b.onclick = () => { selectOnly(p.id); centerOn(p); closeSheet(); };
+    b.className = 'btn'; b.textContent = '詳細';
+    b.onclick = () => openPerson(p.id, 'body');
     d.appendChild(b);
+    const c = document.createElement('button');
+    c.className = 'btn'; c.textContent = '見る';
+    c.onclick = () => { selectOnly(p.id); centerOn(p); closeSheet(); };
+    d.appendChild(c);
     body.appendChild(d);
   }
   const n = document.createElement('div');
   n.className = 'note';
-  n.textContent = '体の状態・能力・装備・持ち物は Phase 2 以降でここに表示されます。';
+  n.textContent = '「詳細」で体の状態・能力・持ち物を確認できます。装備は Phase 3 で追加されます。';
   body.appendChild(n);
 }
 
@@ -543,7 +657,7 @@ window.addEventListener('pagehide', onHide);
 // =====================================================================
 const focus = new THREE.Vector3();
 let last = performance.now();
-let elapsed = 0, uiTimer = 0;
+let elapsed = 0, uiTimer = 0, sheetRefresh = 0;
 const ringItems = [], destItems = [];
 
 function loop(now) {
@@ -592,6 +706,23 @@ function loop(now) {
     $('dayLabel').textContent = `${world.day}日目 ${atmosphere.isNight ? '夜' : world.hour < 10 ? '朝' : world.hour < 17 ? '昼' : '夕'}`;
     $('moneyLabel').textContent = `${world.money} ${PARTY.currency}`;
     updatePartyMarks();
+    // 詳細シートを開いている間は1秒ごとに数値を更新
+    sheetRefresh -= 0.25;
+    if (sheetRefresh <= 0 && sheet.classList.contains('open') && sheetTab === 'person' && personSub !== 'inv' && $('dialog').classList.contains('hide')) {
+      sheetRefresh = 1;
+      const sb = $('sheetBody'), top = sb.scrollTop;
+      renderSheet(); sb.scrollTop = top;
+    }
+    // 全滅
+    const party = partyOf(world);
+    if (!gameOverShown && party.length && party.every((m) => m.state === 'dead')) {
+      gameOverShown = true;
+      world.timeScale = 0; setSpeedButtons();
+      ask('一団は全滅した。\n荒野は何事もなかったように続いていく。', [{ label: 'ロード', value: 'load' }, { label: 'はじめから', value: 'new', cls: 'primary' }]).then((r) => {
+        if (r.value === 'load') openSheet('save');
+        else startWorld(createWorld(WORLD.seed + Math.floor(Math.random() * 1e6)));
+      });
+    }
     $('debug').classList.toggle('hide', !settings.debug);
     if (settings.debug) {
       const inf = renderer.info.render;
@@ -614,4 +745,4 @@ function boot() {
 boot();
 
 // 自動テスト用
-window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t) };
+window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, pick: (x, y) => pickPeople(camera, world.people, x, y).length };

@@ -6,13 +6,16 @@
 import { SAVE } from '../data/config.js';
 import { Rng } from './rng.js';
 import { findSpawn } from '../sim/worldgen.js';
+import { initHealth } from '../sim/body.js';
+import { attachRuntime } from '../sim/world.js';
 
 const DB_NAME = 'w3d', STORE = 'saves', META_KEY = 'w3d.slots', AUTO_BACKUP = 'w3d.autosave';
 export const SLOT_IDS = ['auto', ...Array.from({ length: SAVE.slots }, (_, i) => 's' + (i + 1))];
 export const slotLabel = (id) => (id === 'auto' ? '自動セーブ' : `スロット${id.slice(1)}`);
 
 // ---- 状態 ⇄ セーブデータ ----
-const PERSON_FIELDS = ['id', 'kind', 'name', 'surname', 'x', 'z', 'heading', 'maxSpeed', 'homeX', 'homeZ', 'look'];
+const PERSON_FIELDS = ['id', 'kind', 'name', 'surname', 'x', 'z', 'heading', 'maxSpeed', 'homeX', 'homeZ', 'look',
+  'race', 'body', 'blood', 'hunger', 'state', 'koTimer', 'skills', 'inv', 'resting'];
 
 export function serialize(world, cam, build) {
   return {
@@ -42,7 +45,15 @@ export function migrate(data) {
   if (!data || typeof data !== 'object') throw new Error('セーブデータの形式が正しくありません');
   let d = data;
   if (d.v === undefined) throw new Error('版数のないセーブデータは読み込めません');
-  // 例：if (d.v === 1) { d = { ...d, v: 2, 新しい項目: 既定値 }; }
+  // v1 → v2（Phase 2）：体・能力・所持品・種族を追加
+  if (d.v === 1) {
+    d = { ...d, v: 2, people: d.people.map((p) => {
+      const q = { ...p, race: 'sunabito', inv: p.kind === 'party' ? [{ id: 'dried_meat', qty: 2 }, { id: 'bandage', qty: 3 }] : [] };
+      initHealth(q, new Rng(p.id * 7919 + 1));
+      return q;
+    }) };
+  }
+  // 版を上げたらここに1段ずつ追加する
   if (d.v > SAVE.version) throw new Error('新しい版で作られたセーブデータです。ゲームを最新版に更新してください');
   return d;
 }
@@ -62,10 +73,12 @@ export function deserialize(raw) {
     people: d.people.map((p) => ({
       ...p,
       speed: 0, phase: Math.random() * 6.28, path: [], goal: null, pendingGoal: p.goal || null,
-      stuck: 0, replans: 0, idle: Math.random() * 2,
+      stuck: 0, replans: 0, idle: Math.random() * 2, task: null,
     })),
     log: d.log || [],
   };
+  for (const p of world.people) if (p.resting) p.task = { kind: 'rest' };
+  attachRuntime(world);
   return { world, camera: d.camera };
 }
 
