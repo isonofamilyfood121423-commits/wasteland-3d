@@ -40,7 +40,30 @@ export const ENEMY_TYPES = {
     gear: { weapon: ['long_blade', 'sledge', 'glaive'], body: ['leather_vest', 'iron_plate'], head: ['iron_helm', 'cloth_hood'], legs: ['leather_pants', 'iron_greaves'], feet: ['boots'], outer: ['dust_cloak'] },
     q: [1, 2], money: [60, 140], food: [1, 2], bounty: [400, 900],
   },
+  // Phase 6：拠点を襲う勢力（faction で陣営を指定）
+  eater: {
+    label: '灰喰らい', faction: 'eater', skill: [10, 20],
+    gear: { weapon: ['iron_club', 'sledge', 'spear'], body: [null, 'rag_shirt'], head: [null], legs: [null] },
+    q: [0, 1], money: [0, 10], food: [0, 1],
+  },
+  eater_big: {
+    label: '灰喰らいの大男', faction: 'eater', skill: [18, 28],
+    gear: { weapon: ['sledge'], body: ['rag_shirt'], head: [null], legs: ['leather_pants'] },
+    q: [1, 2], money: [0, 20], food: [1, 2], bounty: [200, 400],
+  },
+  crusader: {
+    label: '白灯の討伐兵', faction: 'holy', skill: [14, 24],
+    gear: { weapon: ['glaive', 'long_blade', 'spear'], body: ['iron_plate', 'leather_vest'], head: ['iron_helm'], legs: ['iron_greaves', 'leather_pants'], feet: ['boots'] },
+    q: [1, 2], money: [20, 60], food: [1, 2],
+  },
+  zealot: {
+    label: '白灯の審問官', faction: 'holy', skill: [22, 32],
+    gear: { weapon: ['long_blade', 'glaive'], body: ['iron_plate'], head: ['iron_helm'], legs: ['iron_greaves'], feet: ['boots'], outer: ['dust_cloak'] },
+    q: [2, 3], money: [60, 140], food: [1, 2],
+  },
 };
+// 陣営ごとの差し色
+export const FACTION_ACCENT = { bandit: 0x7e3a2c, eater: 0x4e5e34, holy: 0xd8d0b8, merchant: 0x3f6f8f };
 
 export const SQUADS = {
   max: 2,                   // 同時にうろつく盗賊団の数

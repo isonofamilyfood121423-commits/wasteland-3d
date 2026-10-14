@@ -99,6 +99,7 @@ export const SHOPS = {
   armor: { label: '防具屋', stock: [['cloth_hood', 2], ['iron_helm', 1], ['leather_vest', 2], ['iron_plate', 1], ['dust_cloak', 2], ['leather_pants', 2], ['iron_greaves', 1], ['boots', 2], ['backpack', 1], ['limb_crude', 1], ['limb_good', 1]], buyCats: ['armor', 'material', 'limb'] },
   bar: { label: '酒場', stock: [['dried_meat', 6], ['hardtack', 6]], buyCats: ['food'], recruits: [1, 3] },
   police: { label: '警備所', stock: [], buyCats: [] },
+  caravan: { label: '隊商の荷', stock: [['trade_salt', 6], ['trade_iron', 3], ['trade_cloth', 5], ['trade_herb', 5], ['dried_meat', 5], ['hardtack', 8], ['bandage', 5], ['aidkit', 1], ['relic_part', 1]], buyCats: null },
 };
 export const TRADE = {
   sellRatio: 0.5,           // 売るときは基準価格のこの割合
@@ -123,6 +124,9 @@ export const ROLES = {
   bartender: { label: '酒場の主人', skill: [5, 12], q: [1, 1], gear: { weapon: ['iron_club'], body: ['rag_shirt'], feet: ['sandals'] } },
   folk: { label: '町の住人', skill: [2, 8], q: [0, 1], gear: { body: ['rag_shirt'], head: ['straw_hat', null, null], feet: ['sandals', null] } },
   recruit: { label: '酒場の客', skill: [3, 14], q: [0, 1], gear: { weapon: ['rusty_blade', 'iron_club', null, 'spear'], body: ['rag_shirt', 'leather_vest'], head: ['straw_hat', 'cloth_hood', null], feet: ['sandals', 'boots'] } },
+  // Phase 6：隊商
+  trader: { label: '隊商の商人', skill: [4, 10], q: [1, 1], gear: { body: ['leather_vest'], head: ['cloth_hood'], feet: ['boots'], outer: ['dust_cloak'] } },
+  porter: { label: '荷運び', skill: [3, 9], q: [0, 1], gear: { body: ['rag_shirt'], head: ['straw_hat', null], feet: ['sandals'] } },
   boss: { label: '砂鼠団の頭目', skill: [24, 34], q: [1, 2], gear: { weapon: ['long_blade', 'sledge', 'glaive'], body: ['iron_plate'], head: ['iron_helm'], legs: ['iron_greaves'], feet: ['boots'], outer: ['dust_cloak'] }, bounty: [1200, 1800] },
 };
-export const ROLE_LABEL = { guard: '衛兵', police: '役人', shopkeeper: '店主', bartender: '酒場の主人', folk: '住人', recruit: '酒場の客', boss: '頭目' };
+export const ROLE_LABEL = { trader: '隊商の商人', porter: '荷運び', escort: '護衛', guard: '衛兵', police: '役人', shopkeeper: '店主', bartender: '酒場の主人', folk: '住人', recruit: '酒場の客', boss: '頭目' };

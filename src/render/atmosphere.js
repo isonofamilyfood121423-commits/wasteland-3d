@@ -86,8 +86,21 @@ export class Atmosphere {
   }
 
   // hour: 0..24, focus: 影を落とす中心（カメラ注視点）, fogFar: 画質ごとの霧距離
-  update(hour, focus, cameraPos, fogFar, camDist = 40) {
+  update(hour, focus, cameraPos, fogFar, camDist = 40, weather = null) {
     const k = sampleKeys(hour);
+    // 天候：霧を濃く・色を寄せ・日差しを弱める
+    if (weather && weather.i > 0.001 && weather.def.tint) {
+      const wi = weather.i;
+      tmpA.setHex(weather.def.tint);
+      // 夜は天気の色も暗くする
+      const dark = Math.min(1, k.sunI / 2.2 + 0.25);
+      tmpA.multiplyScalar(dark);
+      k.fog.lerp(tmpA, wi * 0.85);
+      k.top.lerp(tmpA, wi * 0.7);
+      k.fogK *= 1 + (weather.def.fogMul - 1) * wi;
+      k.sunI *= 1 + (weather.def.sunMul - 1) * wi;
+      k.hemiI *= 1 - 0.15 * wi;
+    }
     // 太陽：6時に東から昇り18時に西へ沈む
     const ang = ((hour - 6) / 12) * Math.PI;
     const elev = Math.sin(ang);
@@ -120,7 +133,7 @@ export class Atmosphere {
     this.skyMat.uniforms.uHorizon.value.copy(k.fog);
     this.skyMat.uniforms.uSunDir.value.copy(this.sunDir);
     this.skyMat.uniforms.uSunColor.value.copy(k.sun);
-    this.skyMat.uniforms.uSunVis.value = Math.max(0, Math.min(1, elev * 5 + 0.3));
+    this.skyMat.uniforms.uSunVis.value = Math.max(0, Math.min(1, elev * 5 + 0.3)) * (1 - 0.85 * (weather?.def?.tint ? weather.i : 0));
     this.sky.position.copy(cameraPos);
     this.sky.scale.setScalar(50);
     this.isNight = hour >= 19.5 || hour < 5;

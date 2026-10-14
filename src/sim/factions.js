@@ -29,7 +29,7 @@ export function hostile(a, b) {
     if (factionEnemies('player', f)) return true;
     if (!W) return false;
     if ((W.rep[f] ?? 0) < REP.hostileBelow) return true;
-    if (other.role === 'guard' || other.role === 'police') {
+    if (other.role === 'guard' || other.role === 'police' || other.role === 'escort') {
       if (isWanted(f)) return true;
       if (other.town && W.tollRefused[other.town] === W.day) return true;
       // 教団の衛兵は自分の町の中にいる錆骨を許さない

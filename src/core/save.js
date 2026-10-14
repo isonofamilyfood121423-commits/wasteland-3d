@@ -20,7 +20,7 @@ const PERSON_FIELDS = ['id', 'kind', 'name', 'surname', 'x', 'z', 'heading', 'ma
   'race', 'body', 'blood', 'hunger', 'state', 'koTimer', 'skills', 'inv', 'resting',
   'faction', 'equip', 'equipVer', 'money', 'bound', 'angryAt', 'enemyType', 'title', 'bounty', 'squad', 'carrying', 'carriedBy',
   'role', 'town', 'station', 'patrolIdx', 'shop', 'hirePrice', 'sneak', 'jailUntil', 'provokedBy', 'treatedBy',
-  'jobs', 'inBed', 'caged'];
+  'jobs', 'inBed', 'caged', 'raider', 'siege', 'traffic', 'squadHunting'];
 
 export function serialize(world, cam, build) {
   return {
@@ -40,7 +40,8 @@ export function serialize(world, cam, build) {
     discovered: world.discovered, shops: world.shops, tradeRep: world.tradeRep,
     base: world.base,
     spawnTimer: world.spawnTimer,
-    squads: world.squads.map((q) => ({ id: q.id, members: q.members, mode: q.mode, cooldownUntil: q.cooldownUntil })),
+    squads: world.squads.map((q) => ({ id: q.id, members: q.members, mode: q.mode, cooldownUntil: q.cooldownUntil, kind: q.kind, raidKind: q.raidKind, start: q.start })),
+    raidFreq: world.raidFreq, raid: world.raid, weather: world.weather, traffic: world.traffic, ruins: world.ruins,
     camera: cam,
     people: world.people.map((p) => {
       const o = {};
@@ -78,6 +79,8 @@ export function migrate(data) {
   if (d.v === 3) d = { ...d, v: 4, needTowns: true };
   // v4 → v5（Phase 5）：拠点（なければ空のまま）と仕事の割り当て
   if (d.v === 4) d = { ...d, v: 5, people: d.people.map((p) => (p.kind === 'party' && !p.jobs ? { ...p, jobs: { build: 1, mine: 0, farm: 0, cook: 0, craft: 0, research: 0 } } : p)) };
+  // v5 → v6（Phase 6）：襲撃・天候・隊商・遺跡（なければ読み込み後に自動で作る）
+  if (d.v === 5) d = { ...d, v: 6, raidFreq: 'normal' };
   // 版を上げたらここに1段ずつ追加する
   if (d.v > SAVE.version) throw new Error('新しい版で作られたセーブデータです。ゲームを最新版に更新してください');
   return d;
@@ -101,6 +104,7 @@ export function deserialize(raw) {
     squads: (d.squads || []).map((q) => ({ ...q, t: 0 })),
     rep: d.rep, wanted: d.wanted, tollPaid: d.tollPaid, tollRefused: d.tollRefused, discovered: d.discovered, shops: d.shops, tradeRep: d.tradeRep,
     base: d.base,
+    raidFreq: d.raidFreq || 'normal', raid: d.raid ? { ...d.raid, next: d.raid.next ?? Infinity } : null, weather: d.weather, traffic: d.traffic, ruins: d.ruins,
     people: d.people.map((p) => ({
       ...p,
       speed: 0, phase: Math.random() * 6.28, path: [], goal: null, pendingGoal: p.goal || null,

@@ -32,7 +32,11 @@ with sync_playwright() as p:
     pg.wait_for_timeout(2000)
     shot('1_title.png')
     pg.tap('#newBtn')
+    pg.wait_for_timeout(500)
+    shot('1b_raid_freq.png')
+    pg.click('#dlgBtns >> text=普通')
     pg.wait_for_timeout(1500)
+    check('raid_freq_set', pg.evaluate('() => window.__game.world.raidFreq === "normal"'))
     # 自動画質判定を止めて「中」で固定（ヘッドレスは遅いため）
     G('g.settings.quality = "mid"; g.settings.decidedQuality = "mid";')
     shot('2_start.png')
@@ -279,6 +283,80 @@ with sync_playwright() as p:
     pg.wait_for_timeout(800)
     pg.click('.slot >> nth=2 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1500)
     check('v5_roundtrip', G('return g.ensureBase(g.world).buildings.filter(b=>b.done).length >= 6;'))
+
+    # ---- Phase 6：話しかけ・天候・襲撃・隊商・遺跡 ----
+    # 離れた所から話しかける → 歩いて行って自動で会話・会話中は時間停止
+    G('const w = g.world; w.banditsOn = false; w.people = w.people.filter(p => !(p.squad && !p.town)); w.squads = []; w.people.filter(x=>x.kind==="party").forEach(p => { p.state = "ok"; p.blood = 100; for (const b of Object.values(p.body)) { b.hp = Math.max(b.hp, 60); b.bleed = 0; } });')
+    G('const w = g.world; w.timeScale = 1; w.debugFast = false; const k = w.people.find(p => p.role === "shopkeeper" && p.town === "sunamachi"); const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.state="ok"; p.task=null; p.x = k.x + 10 + i; p.z = k.z + 6; p.path=[]; p.goal=null; }); g.selected.clear(); g.selected.add(P[0].id); g.rig.target.x = k.x; g.rig.target.z = k.z; g.rig.dist = 20; window.__k = k.id; g.talk(k);')
+    check('talk_walks', G('return !!g.ph6.pendingTalk;'))
+    for _ in range(20):
+        pg.wait_for_timeout(500)
+        if pg.is_visible('#dialog'): break
+    check('talk_auto_open', pg.is_visible('#dialog'))
+    check('talk_paused', G('return g.world.timeScale === 0;'))
+    shot('34_talk_auto.png')
+    if pg.is_visible('#dialog'): pg.click('#dlgBtns >> text=立ち去る')
+    pg.wait_for_timeout(900)
+    check('talk_resumed', G('return g.world.timeScale === 1;'))
+    # 天候
+    G('const w = g.world; const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.x = 60 + i*1.5; p.z = -40; p.path=[]; p.goal=null; }); g.rig.target.x = 62; g.rig.target.z = -42; g.rig.dist = 30; w.hour = 13; g.ph6.setWeather(w, "sandstorm", 3); w.weather.i = 1;')
+    pg.wait_for_timeout(1500)
+    shot('35_sandstorm.png')
+    check('sandstorm', G('return g.ph6.weatherInfo(g.world).label === "砂嵐";'))
+    G('const w = g.world; g.ph6.setWeather(w, "acid", 3); w.weather.i = 1; const P = w.people.filter(x=>x.kind==="party"); P.forEach(p=>{ p.equip.outer=null; p.equip.head=null; for (const b of Object.values(p.body)) b.hp = Math.max(b.hp, 50); }); window.__hp = P[0].body.head.hp + P[0].body.chest.hp; w.debugFast = true;')
+    pg.wait_for_timeout(2500)
+    G('g.world.debugFast = false;')
+    shot('36_acid.png')
+    check('acid_hurts', G('const P = g.world.people.filter(x=>x.kind==="party"); return P[0].body.head.hp + P[0].body.chest.hp < window.__hp && P[0].state === "ok";'))
+    G('g.ph6.setWeather(g.world, "clear", 3); g.world.weather.i = 0;')
+    # 遺跡の箱を調べる
+    G('const w = g.world; const c = g.ph6.cachesNear(w.spawn.x, w.spawn.z, 200)[0]; window.__c = c; const P = w.people.filter(x=>x.kind==="party"); P[0].x = c.x + 1.5; P[0].z = c.z + 1.5; P[0].path=[]; P[0].goal=null; g.rig.target.x = c.x; g.rig.target.z = c.z; g.rig.dist = 22; g.rig.pitch = 1.0; window.__inv = P[0].inv.length; g.ph6.orderSearch(w, P[0], c); w.timeScale = 3;')
+    for _ in range(20):
+        pg.wait_for_timeout(500)
+        if G('return g.ph6.cacheState(g.world, window.__c.key) === 2;'): break
+    G('g.world.timeScale = 1;')
+    shot('37_ruin_cache.png')
+    check('ruin_searched', G('const P = g.world.people.filter(x=>x.kind==="party"); return g.ph6.cacheState(g.world, window.__c.key) === 2 && P[0].inv.some(s => ["relic_part","relic_record","relic_core","scrap","aidkit","long_blade","iron_helm","limb_crude"].includes(s.id));'))
+    # 隊商：道の上の隊商のそばへ行くと人物が現れる
+    G('const w = g.world; const t = g.ph6.trafficMarks(w).find(m => m.kind === "caravan"); window.__t = t; const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.x = t.x + 6 + i; p.z = t.z + 6; p.path=[]; p.goal=null; p.task=null; }); g.rig.target.x = t.x; g.rig.target.z = t.z; g.rig.dist = 26;')
+    for _ in range(10):
+        pg.wait_for_timeout(500)
+        if G('return g.world.people.some(p => p.role === "trader");'): break
+    pg.wait_for_timeout(1500)
+    shot('38_caravan.png')
+    check('caravan_spawned', G('return g.world.people.some(p => p.role === "trader") && g.world.people.filter(p => p.role === "escort").length >= 2;'))
+    G('const w = g.world; const tr = w.people.find(p => p.role === "trader"); const P = w.people.filter(x=>x.kind==="party"); P[0].x = tr.x + 1; P[0].z = tr.z + 1; g.talk(tr);')
+    pg.wait_for_timeout(400)
+    if pg.is_visible('#dialog') and pg.query_selector('#dlgBtns >> text=荷を見る'):
+        pg.click('#dlgBtns >> text=荷を見る'); pg.wait_for_timeout(400)
+    shot('39_caravan_shop.png')
+    check('caravan_shop', pg.is_visible('#sheet') and '隊商' in pg.inner_text('#sheetBody'))
+    G('g.closeSheet();'); pg.wait_for_timeout(500)
+    # 襲撃（拠点へ）
+    G('const w = g.world; w.timeScale = 1; const b = g.ensureBase(w); const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.x = b.x + i*1.5; p.z = b.z + 3; p.path=[]; p.goal=null; p.task=null; p.state="ok"; for (const bb of Object.values(p.body)) { bb.hp = Math.max(bb.hp, 60); bb.bleed = 0; } p.blood = 100; }); w.people.filter(x=>x.role==="trader"||x.role==="escort"||x.role==="porter").forEach(x=>x.state="dead"); g.debug.raid(w); const r = w.raid; const sq = w.squads.find(s=>s.id===r.active); window.__raid = sq.members.slice(); const e = w.people.find(p=>p.id===sq.members[0]); window.__rd = Math.hypot(e.x-b.x, e.z-b.z); g.rig.target.x = b.x; g.rig.target.z = b.z; g.rig.dist = 60;')
+    pg.wait_for_timeout(1200)
+    check('raid_alert', pg.is_visible('#alertBar'))
+    shot('40_raid_alert.png')
+    G('g.world.timeScale = 3;')
+    pg.wait_for_timeout(6000)
+    check('raid_marching', G('const w = g.world; const b = g.ensureBase(w); const e = w.people.find(p=>p.id===window.__raid[0]); return e && Math.hypot(e.x-b.x, e.z-b.z) < window.__rd - 3;'))
+    G('const w = g.world; const b = g.ensureBase(w); const ms = window.__raid.map(id => w.people.find(p=>p.id===id)).filter(Boolean); ms.forEach((m,i)=>{ m.x = b.x + 18 + i; m.z = b.z + 8; m.path=[]; m.goal=null; }); g.rig.target.x = b.x + 8; g.rig.target.z = b.z + 4; g.rig.dist = 24; w.timeScale = 1;')
+    pg.wait_for_timeout(3500)
+    shot('41_raid_fight.png')
+    check('raid_fighting', G('const w = g.world; return window.__raid.some(id => { const p = w.people.find(x=>x.id===id); return p && p.fight && (p.fight.target || p.fight.act); });'))
+    G('g.world.timeScale = 0;')
+    # 予告の時刻を計算できる
+    check('raid_schedule', G('const r = g.ph6.ensureRaid(g.world); return !!r.active || r.next > 0;'))
+    # セーブ v6 の往復
+    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=3 >> button:text-is("保存")'); pg.wait_for_timeout(300)
+    for _ in range(15):
+        pg.wait_for_timeout(200)
+        if pg.is_visible('#dialog'): pg.click('#dlgBtns >> text=上書き'); break
+    pg.wait_for_timeout(800)
+    pg.click('.slot >> nth=3 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1500)
+    check('v6_roundtrip', G('const w = g.world; return w.traffic && w.traffic.length >= 5 && w.ruins && Object.values(w.ruins).includes(2) && w.raidFreq === "normal" && !!w.raid;'))
+    G('g.openSheet("settings");'); pg.wait_for_timeout(300); shot('42_settings.png')
+    G('g.openMap();'); pg.wait_for_timeout(800); shot('43_map.png')
     b.close()
 srv.shutdown()
 

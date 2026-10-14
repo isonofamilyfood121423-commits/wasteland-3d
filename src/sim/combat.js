@@ -179,7 +179,13 @@ function pickTarget(w, p) {
     if (att) return att;
     return nearest(w, p, (o) => valid(o) && hostile(p, o) && Math.hypot(o.x - hx, o.z - hz) < range + 20, range);
   }
-  if (p.faction === 'bandit') {
+  // 隊商の護衛・巡回：近くの敵を狙う
+  if (p.role === 'escort' || p.role === 'trader' || p.role === 'porter') {
+    if (recent) { const a = w.people.find((o) => o.id === p.fight.lastHitBy); if (valid(a) && dist(p, a) < 30) return a; }
+    if (p.role !== 'escort') return null;
+    return nearest(w, p, (o) => valid(o) && hostile(p, o), 22);
+  }
+  if (p.faction === 'bandit' || p.raider) {
     if (!p.squadHunting) return recent ? w.people.find((o) => o.id === p.fight.lastHitBy && valid(o)) || null : null;
     return nearest(w, p, (o) => valid(o) && hostile(p, o), 80);
   }

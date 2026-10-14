@@ -1,6 +1,8 @@
 // ミニマップと全体マップ（地形はコードで描いた画像。町・道・人物を重ねる）
 import { heightAt, regionAt, roadDist, townAt } from '../sim/terrain.js';
 import { TOWNS, FACTIONS, ROAD } from '../data/world.js';
+import { cacheByKey } from '../sim/ruins.js';
+import { trafficMarks } from '../sim/traffic.js';
 
 const RANGE = 2000;      // 地図に描く範囲（±m）
 const SIZE = 256;        // 地図画像の解像度
@@ -90,11 +92,30 @@ export function drawMap(canvas, world, center, span, opts = {}) {
     g.fillRect(x - 6, y - 6, 12, 12); g.strokeRect(x - 6, y - 6, 12, 12);
     if (opts.labels) { g.font = 'bold 14px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(20,16,13,.85)'; g.fillStyle = '#e9b47a'; g.strokeText('拠点', x, y - 10); g.fillText('拠点', x, y - 10); }
   }
+  // 見つけた廃墟（▲＝未調査・灰色＝調べ済み）
+  for (const [key, st] of Object.entries(world.ruins || {})) {
+    const c = cacheByKey(key);
+    if (!c) continue;
+    const [x, y] = P(c.x, c.z);
+    if (x < -10 || y < -10 || x > W + 10 || y > H + 10) continue;
+    g.fillStyle = st === 2 ? '#7a7066' : '#d8c08a'; g.strokeStyle = '#1a1612'; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x + 5, y + 4); g.lineTo(x - 5, y + 4); g.closePath(); g.fill(); g.stroke();
+  }
+  // 一団の近くを通る隊商・巡回（◆）
+  const party = world.people.filter((p) => p.kind === 'party' && p.state !== 'dead');
+  for (const t of trafficMarks(world)) {
+    if (!party.some((p) => Math.hypot(p.x - t.x, p.z - t.z) < 400)) continue;
+    const [x, y] = P(t.x, t.z);
+    if (x < 0 || y < 0 || x > W || y > H) continue;
+    g.fillStyle = t.kind === 'caravan' ? '#e9c46a' : '#' + (FACTIONS[t.faction]?.accent || 0x888888).toString(16).padStart(6, '0');
+    g.strokeStyle = '#111'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x, y - 4); g.lineTo(x + 4, y); g.lineTo(x, y + 4); g.lineTo(x - 4, y); g.closePath(); g.fill(); g.stroke();
+  }
   // 人物
   for (const p of world.people) {
     if (p.state === 'dead') continue;
     const isParty = p.kind === 'party';
-    const danger = p.squadHunting || p.angryAt?.includes('player');
+    const danger = p.squadHunting || p.raider || p.angryAt?.includes('player');
     if (!isParty && !danger) continue;
     const [x, y] = P(p.x, p.z);
     if (x < 0 || y < 0 || x > W || y > H) continue;

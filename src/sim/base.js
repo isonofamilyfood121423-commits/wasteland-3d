@@ -127,7 +127,7 @@ export function placeBuilding(w, type, x, z, rot = 0) {
   const base = ensureBase(w);
   const chk = canPlace(w, type, x, z, rot);
   if (!chk.ok) return chk;
-  if (!base.founded) { base.founded = true; base.x = x; base.z = z; w.addLogFn?.('ここを拠点にした。'); }
+  if (!base.founded) { base.founded = true; base.x = x; base.z = z; base.foundedAt = w.time; w.addLogFn?.('ここを拠点にした。'); }
   // 仕様判断：土台は高い側に合わせ、低い側は土台ブロックが地面まで伸びて隙間を埋める
   const b = { id: base.nextId++, type, x, z, rot, done: false, progress: 0, paid: false, open: true, ground: chk.hmax };
   if (BUILDINGS[type].gate) b.open = true;
@@ -152,7 +152,7 @@ export function placeWall(w, x0, z0, x1, z1) {
     if (base.founded && Math.hypot(x - base.x, z - base.z) > BASE.radius) { fail = '拠点の範囲外です'; continue; }
     if (!walkable(x, z)) { fail = '岩や建物がある所は飛ばしました'; continue; }
     if (base.buildings.some((b) => b.wallSeg && Math.hypot(b.x - x, b.z - z) < 1.2)) continue;
-    if (!base.founded) { base.founded = true; base.x = x; base.z = z; w.addLogFn?.('ここを拠点にした。'); }
+    if (!base.founded) { base.founded = true; base.x = x; base.z = z; base.foundedAt = w.time; w.addLogFn?.('ここを拠点にした。'); }
     const b = { id: base.nextId++, type: 'wall', wallSeg: true, x, z, rot: 0, angle: ang, len: len / n, done: false, progress: 0, paid: false, ground: heightAt(x, z) };
     base.buildings.push(b);
     blockRect(b, true);
@@ -340,6 +340,7 @@ export function stepWork(w, p, dt) {
     gainXp(w, p, 'labor', 0.25 * dt);
     if (b.progress >= BUILDINGS[b.type].work) {
       b.done = true; b.progress = BUILDINGS[b.type].work;
+      w.events?.push({ kind: 'built', x: b.x, z: b.z, fx: b.x, fz: b.z });
       if (!b.wallSeg) w.addLogFn?.(`${BUILDINGS[b.type].label}が完成した。`);
       p.task = null;
     }

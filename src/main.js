@@ -27,6 +27,14 @@ import {
 } from './sim/base.js';
 import { BUILDINGS, TECHS, RECIPES, JOBS, BASE } from './data/build.js';
 import { Effects } from './render/effects.js';
+import { WeatherView } from './render/weatherView.js';
+import { CacheView } from './render/cacheView.js';
+import { weatherInfo, setWeather } from './sim/weather.js';
+import { raidCountdownHours, begin as beginRaid, resetRaidSchedule, ensureRaid, baseScore } from './sim/raids.js';
+import { trafficMarks } from './sim/traffic.js';
+import { cachesNear, cacheState, orderSearch } from './sim/ruins.js';
+import { RAID_FREQ, RAID, WEATHER, WEATHER_CFG } from './data/events.js';
+import { initAudio, setAudio, play, playEvents, updateAmbience, suspendAudio, resumeAudio } from './core/audio.js';
 import { Atmosphere } from './render/atmosphere.js';
 import { TerrainView } from './render/terrainView.js';
 import { HumanView } from './render/humanView.js';
@@ -43,6 +51,7 @@ installErrorPanel(BUILD);
 const $ = (id) => document.getElementById(id);
 const settings = loadSettings();
 const vibrate = (ms) => { if (settings.vibrate) navigator.vibrate?.(ms); };
+initAudio({ enabled: settings.sound, volume: settings.volume });
 
 // ---- ブラウザ既定動作の無効化（ズーム・長押しメニュー・プルリフレッシュ） ----
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -68,6 +77,8 @@ const markers = new Markers(scene);
 const effects = new Effects(scene);
 const towns = new TownView(scene);
 const baseView = new BaseView(scene);
+const weatherView = new WeatherView(scene, WEATHER_CFG.particles.high);
+const cacheView = new CacheView(scene);
 const rig = new CameraRig(camera, canvas);
 
 let world = createWorld(WORLD.seed); // タイトル背景にも使う
@@ -93,6 +104,8 @@ function applyQuality(name) {
   humans.setShadows(q.shadows);
   towns.setShadows(q.shadows);
   baseView.setShadows(q.shadows);
+  cacheView.setShadows(q.shadows);
+  weatherView.setCount(WEATHER_CFG.particles[name] || 600);
   terrain.setQuality(q);
   scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
   resize();
@@ -129,7 +142,12 @@ function startWorld(w, cam) {
   world.onLog = (text) => toast(text);
   let lastBuzz = 0;
   world.onPartyHit = () => { const t = performance.now(); if (t - lastBuzz > 400) { lastBuzz = t; vibrate(25); } };
-  world.onAlarm = () => vibrate([60, 40, 60]);
+  world.onAlarm = () => { vibrate([60, 40, 60]); play('alarm'); };
+  world.onRaid = (stage) => {
+    if (stage === 'notice') { vibrate([40, 30, 40]); play('notice'); }
+    if (stage === 'repelled') play('found');
+  };
+  world.onFound = () => play('found');
   world.onToll = (t) => onToll(t);
   gameOverShown = false;
   humans.reset();
@@ -163,9 +181,13 @@ async function newGame() {
   const meta = listSlots();
   if (meta.auto && !(await confirmBox('はじめから遊びますか？\n自動セーブは次の自動セーブで上書きされます（スロットのセーブは残ります）。', 'はじめから'))) return;
   tryFullscreen();
+  const r = await ask('拠点への襲撃の頻度を選んでください。\n（拠点をある程度大きくすると、盗賊などが攻めてきます。襲撃の前には予告があります。あとから設定で変えられます）', [
+    { label: 'なし', value: 'off' }, { label: '少なめ', value: 'low' }, { label: '普通', value: 'normal', cls: 'primary' }, { label: '多め', value: 'high' },
+  ]);
   startWorld(createWorld(WORLD.seed + Math.floor(Math.random() * 1e6)));
   // 仕様判断：地形は固定シード（手作りに近い世界として扱う）、人物の顔ぶれだけ毎回変える
   world.seed = WORLD.seed;
+  world.raidFreq = r.value || 'normal';
 }
 
 async function loadFrom(id) {
@@ -244,7 +266,7 @@ function updatePartyMarks() {
     el.querySelector('.st').textContent = st;
   });
 }
-function selectOnly(id) { selected.clear(); selected.add(id); inspected = null; updatePartyMarks(); }
+function selectOnly(id) { selected.clear(); selected.add(id); inspected = null; updatePartyMarks(); play('tap'); }
 function centerOn(p) { rig.follow = null; rig.target.x = p.x; rig.target.z = p.z; rig.vel.set(0, 0); }
 function selectedParty() { return [...selected].map((id) => personById(world, id)).filter(Boolean); }
 
@@ -384,6 +406,8 @@ rig.onTap = async (x, y) => {
   if (!g) return;
   const bld = buildingAt(g.x, g.z);
   if (bld && !buildMode) { buildingActions(bld); return; }
+  const cache = cachesNear(g.x, g.z, 1.6)[0];
+  if (cache && !buildMode) { cacheActions(cache); return; }
   moveSelectedTo(g.x, g.z);
 };
 
@@ -396,13 +420,29 @@ rig.onLongPress = async (x, y) => {
   if (!g) return;
   const bld = buildingAt(g.x, g.z);
   if (bld) { buildingActions(bld); return; }
+  const cache = cachesNear(g.x, g.z, 3.5)[0];
+  if (cache) { cacheActions(cache); return; }
   showActions('この地点', `${Math.round(g.x)}, ${Math.round(g.z)}`, [
     { label: '選択中の仲間を移動', run: () => moveSelectedTo(g.x, g.z) },
     { label: '全員をここへ', run: () => { const all = partyOf(world); orderMove(world, all.map((m) => m.id), g.x, g.z); selected.clear(); all.forEach((m) => selected.add(m.id)); updatePartyMarks(); } },
     { label: 'カメラをここへ', run: () => { rig.follow = null; rig.target.x = g.x; rig.target.z = g.z; } },
-    { label: '調べる', phase: 'Phase 6' },
   ]);
 };
+
+// 廃墟の遺物の箱
+function cacheActions(c) {
+  const st = cacheState(world, c.key);
+  if (st === 2) { showActions('古い箱', '空っぽ（調べ済み）', [{ label: 'そばへ移動', run: () => moveSelectedTo(c.x + 1, c.z + 1) }]); return; }
+  showActions('古い箱', '廃墟に残された箱。遺物が入っているかもしれない', [
+    { label: '調べる', run: () => {
+      let s = selectedParty().filter((m) => m.state === 'ok');
+      if (!s.length) { toast('調べる仲間を選択してください'); return; }
+      s = s.sort((a, b) => Math.hypot(a.x - c.x, a.z - c.z) - Math.hypot(b.x - c.x, b.z - c.z));
+      if (orderSearch(world, s[0], c)) { toast(`${s[0].name}が箱を調べに行きます`); play('select'); }
+    } },
+    { label: 'そばへ移動', run: () => moveSelectedTo(c.x + 1, c.z + 1) },
+  ]);
+}
 
 function treatWith(patient) {
   // 選択中の仲間で治療する。だれも選んでいなければ本人が自分で手当て
@@ -422,6 +462,11 @@ function debugActions(p) {
     { label: '空腹にする', run: () => { debug.starve(world, p); toast(`${p.name}を空腹にしました`); } },
     { label: '義肢を持たせる', run: () => debug.giveLimb(world, p) },
     { label: '盗賊を呼ぶ', run: () => debug.bandits(world, p) },
+    { label: '拠点を襲撃させる', run: () => { if (!ensureBase(world).founded) { toast('拠点がありません'); return; } debug.raid(world); } },
+    { label: '砂嵐にする', run: () => setWeather(world, 'sandstorm', 2) },
+    { label: '酸性雨にする', run: () => setWeather(world, 'acid', 2) },
+    { label: '灰降りにする', run: () => setWeather(world, 'ashfall', 2) },
+    { label: '晴れにする', run: () => setWeather(world, 'clear', 3) },
     { label: '包帯を5つ渡す', run: () => { const id = RACES[p.race].aid === 'repair' ? 'repair_kit' : 'bandage'; addItem(p, id, 5); toast(`${ITEMS[id].label}を5つ渡しました`); } },
   ]);
 }
@@ -683,6 +728,11 @@ function sheetSettings(body) {
       <button class="btn ${settings.vibrate ? 'on' : ''}" id="vibBtn">振動</button>
       <button class="btn" id="fsBtn">全画面</button>
     </div>
+    <h3>音</h3>
+    <div class="row" id="volRow">
+      <button class="btn ${settings.sound ? 'on' : ''}" id="sndBtn">効果音：${settings.sound ? 'あり' : 'なし'}</button>
+      ${[['0.35', '小'], ['0.7', '中'], ['1', '大']].map(([v, l]) => `<button class="btn ${settings.sound && Math.abs(settings.volume - v) < 0.01 ? 'on' : ''}" data-vol="${v}">${l}</button>`).join('')}
+    </div>
     <h3>検証用</h3>
     <div class="row">
       <button class="btn ${world.debugFast ? 'on' : ''}" id="ffBtn">時間を60倍で早送り</button>
@@ -692,6 +742,8 @@ function sheetSettings(body) {
       <button class="btn ${world.banditsOn !== false ? 'on' : ''}" id="banditBtn">盗賊の出現：${world.banditsOn !== false ? 'あり' : 'なし'}</button>
       <button class="btn" id="manualBtn2">操作マニュアル</button>
     </div>
+    <div class="note">拠点への襲撃（拠点の建物が${RAID.minBuildings}つ以上になると起きます。前もって予告があります）</div>
+    <div class="row" id="raidRow">${Object.entries(RAID_FREQ).map(([k, v]) => `<button class="btn ${(world.raidFreq || 'normal') === k ? 'on' : ''}" data-raid="${k}">${v.label}</button>`).join('')}</div>
     <div class="note">ビルド ${BUILD.build}（${BUILD.time}）</div>`;
   body.querySelectorAll('#qRow .btn').forEach((b) => {
     b.onclick = () => {
@@ -705,6 +757,9 @@ function sheetSettings(body) {
   $('dbgBtn').onclick = () => { settings.debug = !settings.debug; saveSettings(settings); renderSheet(); };
   $('vibBtn').onclick = () => { settings.vibrate = !settings.vibrate; saveSettings(settings); vibrate(30); renderSheet(); };
   $('fsBtn').onclick = tryFullscreen;
+  $('sndBtn').onclick = () => { settings.sound = !settings.sound; setAudio(settings.sound, settings.volume); saveSettings(settings); if (settings.sound) play('select'); renderSheet(); };
+  body.querySelectorAll('[data-vol]').forEach((b) => { b.onclick = () => { settings.sound = true; settings.volume = +b.dataset.vol; setAudio(true, settings.volume); saveSettings(settings); play('select'); renderSheet(); }; });
+  body.querySelectorAll('[data-raid]').forEach((b) => { b.onclick = () => { world.raidFreq = b.dataset.raid; resetRaidSchedule(world); toast(`拠点への襲撃：${RAID_FREQ[world.raidFreq].label}`); renderSheet(); }; });
   $('ffBtn').onclick = () => { world.debugFast = !world.debugFast; toast(world.debugFast ? '時間を60倍で早送り中' : '早送りを解除しました'); renderSheet(); };
   $('manualBtn2').onclick = openManual;
   $('banditBtn').onclick = () => { world.banditsOn = world.banditsOn === false; toast(world.banditsOn ? '盗賊が現れるようになりました' : '盗賊は新しく現れなくなりました（今いる盗賊は残ります）'); renderSheet(); };
@@ -728,11 +783,13 @@ function onHide() {
   hiddenPaused = true;
   savedScale = world.timeScale;
   world.timeScale = 0;
+  suspendAudio();
   autosave();
 }
 function onShow() {
   if (!hiddenPaused) return;
   hiddenPaused = false;
+  resumeAudio();
   // 仕様判断：復帰時は一時停止のまま再開（状況を確認してから動かせるように）
   world.timeScale = 0;
   if (running) { setSpeedButtons(); toast('一時停止中です。右上の速度ボタンで再開します'); }
@@ -758,19 +815,23 @@ function loop(now) {
   last = now;
   elapsed += dt;
 
-  if (running) stepWorld(world, dt);
+  if (running) { stepWorld(world, dt); checkPendingTalk(); }
   else rig.yaw += dt * 0.04; // タイトル画面ではゆっくり旋回
 
   rig.update(dt);
   focus.copy(rig.target);
-  const k = atmosphere.update(world.hour, focus, camera.position, q.fogFar, rig.dist);
+  const wx = running ? weatherInfo(world) : null;
+  const k = atmosphere.update(world.hour, focus, camera.position, q.fogFar, rig.dist, wx);
+  weatherView.update(world.timeScale > 0 || !running ? dt : dt * 0.15, wx, focus);
+  if (running) cacheView.update(world, focus, dt);
   terrain.update(focus, k.fog, running ? 2 : 6);
   towns.update(focus, q.fogFar + rig.dist + 60);
   world.focus = focus;
   baseView.update(world, elapsed);
   if (buildMode) updateBuildPreview();
   humans.update(world.people, focus, elapsed);
-  if (world.events?.length) { effects.spawn(world.events); world.events.length = 0; }
+  if (world.events?.length) { playEvents(world.events, focus); effects.spawn(world.events); world.events.length = 0; }
+  if (running && wx) updateAmbience(wx, world.timeScale > 0);
   effects.update(dt);
 
   // 選択リングと移動先
@@ -807,6 +868,14 @@ function loop(now) {
     $('timeLabel').textContent = fmtHour(world.hour);
     $('dayLabel').textContent = `${world.day}日目 ${atmosphere.isNight ? '夜' : world.hour < 10 ? '朝' : world.hour < 17 ? '昼' : '夕'}`;
     $('moneyLabel').textContent = `${world.money} ${PARTY.currency}`;
+    // 天気と襲撃の予告
+    const wi = weatherInfo(world);
+    $('weatherLabel').textContent = wi.label;
+    $('weatherLabel').className = wi.label === '晴れ' ? '' : 'bad';
+    const cd = raidCountdownHours(world), rr = ensureRaid(world);
+    const alertText = rr.active ? `${rr.label || '襲撃隊'}が拠点を攻撃中！` : cd !== null ? `襲撃の予告：${RAID.kinds.find((x) => x.id === rr.kind)?.label || '襲撃隊'}　あと${cd < 1 ? '1時間以内' : `約${Math.round(cd)}時間`}` : '';
+    $('alertBar').classList.toggle('hide', !alertText);
+    if (alertText) $('alertBar').textContent = alertText;
     updatePartyMarks();
     drawMinimap();
     const tHere = townAt(rig.target.x, rig.target.z);
@@ -847,23 +916,79 @@ const rnd = () => Math.random();
 const pickL = (list) => list[Math.floor(rnd() * list.length)];
 const near = (a, b, d) => Math.hypot(a.x - b.x, a.z - b.z) < d;
 
-// 話しかける：近くに仲間がいなければ、選択中の仲間を向かわせる
+// 話しかける：近くに仲間がいなければ、選択中の仲間を向かわせ、着いたら自動で会話を始める。
+// 仕様判断：話しかけた相手はその場で立ち止まり、会話中は時間が止まる（終わったら元の速度に戻る）
+let pendingTalk = null;   // { npc, ids } 相手のところへ向かっている途中
+let talkSession = null;   // { npc, prev } 会話中（時間停止中）
+function holdNpc(npc, sec) { npc.holdUntil = world.time + sec; npc.path = []; npc.goal = null; npc.tx = undefined; }
 function talk(npc) {
+  if (npc.state !== 'ok') { toast('返事がない。'); return; }
   const party = partyOf(world).filter((m) => m.state === 'ok');
   const speaker = party.filter((m) => near(m, npc, 6)).sort((a, b) => Math.hypot(a.x - npc.x, a.z - npc.z) - Math.hypot(b.x - npc.x, b.z - npc.z))[0];
   if (!speaker) {
-    const go = selectedParty().filter((m) => m.state === 'ok');
-    if (!go.length) { toast('話しかける仲間を選択してください'); return; }
+    let go = selectedParty().filter((m) => m.state === 'ok');
+    if (!go.length) go = party.slice().sort((a, b) => Math.hypot(a.x - npc.x, a.z - npc.z) - Math.hypot(b.x - npc.x, b.z - npc.z)).slice(0, 1);
+    if (!go.length) { toast('話しかけられる仲間がいません'); return; }
+    if (hostile(npc, go[0])) { toast(`${npc.name}は話を聞く気がない。`); return; }
+    holdNpc(npc, 180);
     orderMove(world, go.map((m) => m.id), npc.x + 1.2, npc.z + 1.2);
-    toast(`${go[0].name}が${npc.name}のところへ向かいます。着いたらもう一度「話す」を押してください`);
+    pendingTalk = { npc, ids: go.map((m) => m.id) };
+    if (world.timeScale === 0) { world.timeScale = 1; setSpeedButtons(); }
+    toast(`${go[0].name}が${npc.name}に話しかけに行きます`);
     return;
   }
-  if (npc.state !== 'ok') { toast('返事がない。'); return; }
-  if (hostile(npc, speaker)) { toast(`${npc.name}は話を聞く気がない。`); return; }
+  startTalk(npc, speaker);
+}
+// 向かっている途中の確認（毎フレーム）
+function checkPendingTalk() {
+  if (pendingTalk) {
+    const { npc, ids } = pendingTalk;
+    const goers = ids.map((id) => personById(world, id)).filter((m) => m && m.state === 'ok');
+    if (npc.state !== 'ok' || !goers.length) { pendingTalk = null; npc.holdUntil = 0; }
+    else {
+      const sp = goers.find((m) => near(m, npc, 3.2));
+      if (sp) { pendingTalk = null; startTalk(npc, sp); }
+      else if (!goers.some((m) => m.goal)) {
+        // 別の指示を出した・たどり着けなかった
+        pendingTalk = null; npc.holdUntil = 0;
+      }
+    }
+  }
+  if (talkSession && $('dialog').classList.contains('hide') && !sheet.classList.contains('open')) {
+    talkSession.npc.holdUntil = world.time + 4;
+    world.timeScale = talkSession.prev || 1; setSpeedButtons();
+    talkSession = null;
+  }
+}
+function startTalk(npc, speaker) {
+  if (hostile(npc, speaker)) { npc.holdUntil = 0; toast(`${npc.name}は話を聞く気がない。`); return; }
+  holdNpc(npc, 600);
+  npc.speed = 0;
+  if (!talkSession) { talkSession = { npc, prev: world.timeScale }; }
+  world.timeScale = 0; setSpeedButtons();
+  speaker.heading = Math.atan2(npc.x - speaker.x, npc.z - speaker.z);
+  talkTo(npc, speaker);
+}
+function talkTo(npc, speaker) {
   npc.heading = Math.atan2(speaker.x - npc.x, speaker.z - npc.z);
   const town = npc.town ? townById(npc.town) : null;
   const who = `${npc.name}（${npc.title || ROLE_LABEL[npc.role] || FACTIONS[npc.faction]?.label || '流れ者'}）`;
   const f = npc.faction;
+  if (npc.role === 'trader') {
+    const dest = townById(npc.town);
+    ask(`${who}\n「${pickL(LINES.trader)}」\n（行き先：${dest?.name || '？'}。値段は行き先の町に近い）`, [
+      { label: '荷を見る', value: 'shop', cls: 'primary' }, { label: '噂を聞く', value: 'rumor' }, { label: '立ち去る', value: null },
+    ]).then((r) => {
+      if (r.value === 'shop') openShop(npc.town, 'caravan', npc, speaker);
+      if (r.value === 'rumor') ask(`${who}\n「${pickL(LINES.rumors.concat(LINES.traderRumors))}」`, [{ label: '礼を言う', value: 0 }]);
+    });
+    return;
+  }
+  if (npc.role === 'escort' || npc.role === 'porter') {
+    const line = npc.role === 'porter' ? pickL(LINES.porter) : pickL(isWanted(f) ? LINES.guard.hostile : LINES.escort);
+    ask(`${who}\n「${line}」`, [{ label: '立ち去る', value: null }]);
+    return;
+  }
   if (npc.role === 'shopkeeper' || (npc.role === 'bartender')) {
     const line = pickL(npc.role === 'bartender' ? LINES.bartender : LINES.shopkeeper);
     const btns = [{ label: '店を見る', value: 'shop', cls: 'primary' }];
@@ -940,7 +1065,7 @@ function sheetShop(body) {
   if (!buyer || !near2.includes(buyer)) { buyer = near2[0]; shopState.buyerId = buyer.id; }
   const st = shopStock(world, town.id, shopState.shopType);
   const mode = shopState.mode;
-  body.innerHTML = `<h3>${town.name}の${SHOPS[shopState.shopType].label}</h3>
+  body.innerHTML = `<h3>${shopState.shopType === 'caravan' ? `隊商の荷（${town.name}行き）` : `${town.name}の${SHOPS[shopState.shopType].label}`}</h3>
     <div class="shopbar">所持金 <span class="money">${world.money} 錆貨</span></div>
     <div class="shopbar">取引する仲間：${near2.map((m) => `<button class="btn ${m === buyer ? 'on' : ''}" data-buyer="${m.id}">${m.name}</button>`).join('')}</div>
     <div class="subtabs">${[['buy', '買う'], ['sell', '売る'], ['steal', '盗む']].map(([k, l]) => `<button class="btn ${mode === k ? 'on' : ''}" data-mode="${k}">${l}</button>`).join('')}</div>
@@ -971,13 +1096,13 @@ function sheetShop(body) {
         const r = steal(world, town.id, shopState.shopType, +b.dataset.i, buyer, door);
         toast(r.msg);
         if (r.caught) { closeSheet(); return; }
-      } else toast(buy(world, town.id, shopState.shopType, +b.dataset.i, buyer).msg);
+      } else { const r = buy(world, town.id, shopState.shopType, +b.dataset.i, buyer); toast(r.msg); if (r.ok) play('coin'); }
       renderSheet();
     };
   });
-  list.querySelectorAll('[data-sell]').forEach((b) => { b.onclick = () => { toast(sell(world, town.id, shopState.shopType, buyer, +b.dataset.sell).msg); renderSheet(); }; });
+  list.querySelectorAll('[data-sell]').forEach((b) => { b.onclick = () => { const r = sell(world, town.id, shopState.shopType, buyer, +b.dataset.sell); toast(r.msg); if (r.ok) play('coin'); renderSheet(); }; });
 }
-const ITEM_CAT_LABEL = (c) => ({ weapon: '武器', armor: '防具', food: '食料', med: '医療', trade: '交易品', material: '素材', limb: '義肢' })[c] || '';
+const ITEM_CAT_LABEL = (c) => ({ weapon: '武器', armor: '防具', food: '食料', med: '医療', trade: '交易品', material: '素材', limb: '義肢', relic: '遺物' })[c] || '';
 
 // ---- 派閥 ----
 function sheetFactions(body) {
@@ -1230,10 +1355,19 @@ function sheetBase(body) {
     for (const [id, T] of Object.entries(TECHS)) {
       const doneT = r.done.includes(id), av = techAvailable(world, id);
       const req = T.requires.filter((x) => !r.done.includes(x)).map((x) => TECHS[x].label).join('・');
-      html += `<div class="tech ${doneT ? 'done' : ''}"><div class="info"><b>${T.label}</b>　<span class="muted">${T.cost}</span><br>${T.desc}${req ? `<br><span class="muted">先に：${req}</span>` : ''}</div>${doneT ? '<span class="muted">完了</span>' : r.current === id ? '<span class="money">研究中</span>' : av ? `<button class="btn" data-tech="${id}">研究する</button>` : ''}</div>`;
+      const items = Object.entries(T.items || {}).map(([it, n]) => `${ITEMS[it].label}${n}（倉庫${stockCount(world, it)}）`).join('・');
+      html += `<div class="tech ${doneT ? 'done' : ''}"><div class="info"><b>${T.label}</b>　<span class="muted">${T.cost}</span><br>${T.desc}${items && !doneT ? `<br><span class="muted">遺物：${items}</span>` : ''}${req ? `<br><span class="muted">先に：${req}</span>` : ''}</div>${doneT ? '<span class="muted">完了</span>' : r.current === id ? '<span class="money">研究中</span>' : av ? `<button class="btn" data-tech="${id}">研究する</button>` : ''}</div>`;
     }
     el.innerHTML = html;
-    el.querySelectorAll('[data-tech]').forEach((b) => { b.onclick = () => { if (r.current !== b.dataset.tech) r.progress = 0; r.current = b.dataset.tech; toast(`「${TECHS[r.current].label}」を研究します`); renderSheet(); }; });
+    el.querySelectorAll('[data-tech]').forEach((b) => { b.onclick = () => {
+      const id = b.dataset.tech, T = TECHS[id];
+      if (r.current === id) return;
+      // 遺物が必要な研究は、始めるときに倉庫から使う（途中で別の研究に切り替えると失われる）
+      const lack = Object.entries(T.items || {}).filter(([it, n]) => stockCount(world, it) < n);
+      if (lack.length) { toast(`倉庫に${lack.map(([it, n]) => `${ITEMS[it].label}${n}`).join('・')}が必要です（廃墟の箱で見つかります）`); return; }
+      for (const [it, n] of Object.entries(T.items || {})) stockTake(world, it, n);
+      r.progress = 0; r.current = id; toast(`「${T.label}」を研究します`); renderSheet();
+    }; });
   } else {
     let html = '<div class="note">精錬炉（鉄鉱石3→鉄板）と調理台（穀物2→平焼きパン）は、材料が倉庫にあれば「加工」「調理」の仕事で自動で作ります。武器・防具は予約した分だけ作ります。出来た物は倉庫に入ります。</div>';
     for (const type of ['forge', 'armorer']) {
@@ -1242,6 +1376,7 @@ function sheetBase(body) {
       const q = base.queues[type];
       if (q.length) html += `<div class="note">予約：${q.map((id) => RECIPES[type].find((x) => x.id === id)?.label).join('、')}　<button class="btn" data-clear="${type}">取り消し</button></div>`;
       for (const r of RECIPES[type]) {
+        if (r.tech && !base.research.done.includes(r.tech)) continue;
         const ins = Object.entries(r.in).map(([id, n]) => `${ITEMS[id].label}${n}（${stockCount(world, id)}）`).join('・');
         html += `<div class="irow"><div class="info"><b>${r.label}</b><br><small class="muted">${ins}</small></div>${has ? `<button class="btn" data-queue="${type}:${r.id}">予約</button>` : ''}</div>`;
       }
@@ -1267,4 +1402,4 @@ function boot() {
 boot();
 
 // 自動テスト用
-window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, orderBind, orderCarry, orderAttack, talk, openMap, openSheet, enterBuild, exitBuild, placeBuilding, snapPos, ensureBase, setBaseSub: (v) => { baseSub = v; }, serializeNow: () => serialize(world, cameraState(), BUILD.build), pick: (x, y) => pickPeople(camera, world.people, x, y).length };
+window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, orderBind, orderCarry, orderAttack, talk, openMap, openSheet, enterBuild, exitBuild, placeBuilding, snapPos, ensureBase, setBaseSub: (v) => { baseSub = v; }, serializeNow: () => serialize(world, cameraState(), BUILD.build), pick: (x, y) => pickPeople(camera, world.people, x, y).length, closeSheet, ph6: { setWeather, weatherInfo, cachesNear, cacheState, orderSearch, trafficMarks, ensureRaid, raidCountdownHours, baseScore, get pendingTalk() { return pendingTalk; }, get talkSession() { return talkSession; } } };

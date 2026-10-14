@@ -189,7 +189,8 @@ function poseFor(a, time, i) {
   P.twist = -sp * 0.22 * amt;
   P.headPitch = -0.05 * amt;
   for (let k = 0; k < 2; k++) {
-    const swing = (k === 0 ? sp : -sp) * (0.6 + run * 0.25) * amt;
+    // 腕は反対側の脚と同じ向きに振る（左脚が前なら右腕が前）
+    const swing = (k === 0 ? -sp : sp) * (0.6 + run * 0.25) * amt;
     P.arm[k] = swing + breathe * 2;
     P.elbow[k] = 0.25 + Math.max(0, -swing) * 0.6 + 0.15 * amt + run * 0.9;
     const ph = k === 0 ? p + Math.PI : p;

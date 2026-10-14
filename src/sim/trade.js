@@ -90,7 +90,7 @@ export function sell(w, townId, shopType, seller, invIdx) {
 
 // 盗む：窃盗の能力と、近くにいる衛兵の数で成功率が決まる。失敗すると指名手配
 export function stealChance(w, thief, townId, door) {
-  const guards = w.people.filter((o) => o.town === townId && o.role === 'guard' && o.state === 'ok' && Math.hypot(o.x - door.x, o.z - door.z) < 15).length;
+  const guards = w.people.filter((o) => ((o.town === townId && o.role === 'guard') || o.role === 'escort') && o.state === 'ok' && Math.hypot(o.x - door.x, o.z - door.z) < 15).length;
   const sneak = thief.sneak ? 0.1 : 0;
   return Math.max(0.03, Math.min(0.9, TRADE.stealBase + effSkill(thief, 'theft') * TRADE.stealPerLv + sneak - guards * TRADE.stealGuardPenalty));
 }

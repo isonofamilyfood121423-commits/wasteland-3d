@@ -6,6 +6,8 @@ const DEFAULTS = {
   dynRes: true,
   debug: true,          // Phase 0 は検証用に既定でオン
   vibrate: true,
+  sound: true,          // 効果音（Phase 6）
+  volume: 0.7,
 };
 
 export function loadSettings() {

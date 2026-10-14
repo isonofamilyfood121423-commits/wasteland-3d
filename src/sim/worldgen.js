@@ -23,6 +23,7 @@ export function chunkSolids(cx, cz) {
   const ox = cx * S, oz = cz * S;
   const rnd = mulberry32(Math.floor(hash2(cx, cz, WORLD.seed + 11) * 2 ** 31));
   const bigRocks = [], ruins = [];
+  let cache = null;
 
   // 大岩（斜面に多い）
   for (let i = 0; i < 4; i++) {
@@ -48,6 +49,14 @@ export function chunkSolids(cx, cz) {
       const h = 3 + rnd() * 8;
       box({ x, z, y: heightAt(x, z) - 0.5 + h / 2, sx: 1.2 + rnd() * 0.8, sy: h, sz: 1.2 + rnd() * 0.8, ry: a, rx: (rnd() - 0.5) * 0.25, rz: (rnd() - 0.5) * 0.25, rust: rnd() < 0.4 });
     }
+    // 遺物の箱（Phase 6）：梁の脇に置く。調べると遺物が見つかる
+    {
+      const cr = mulberry32(Math.floor(hash2(cx, cz, WORLD.seed + 31) * 2 ** 31));
+      // 梁の横方向（ボックスの z 軸＝Three.js の Y 回転で (sin, cos)）へずらす
+      const sg = cr() < 0.5 ? 1 : -1, ry = rot + 0.6;
+      const x = px + Math.sin(ry) * 2.6 * sg, z = pz + Math.cos(ry) * 2.6 * sg;
+      cache = { key: chunkKey(cx, cz), x, z, y: heightAt(x, z), ry: rot + 0.6 };
+    }
     // 崩れた梁
     box({ x: px, z: pz, y: baseY + 0.6, sx: 9 + rnd() * 4, sy: 0.9, sz: 1.3, ry: rot + 0.6, rx: 0.08, rz: 0.12, rust: true });
     // 瓦礫（小さいものは通り抜けられる）
@@ -69,7 +78,7 @@ export function chunkSolids(cx, cz) {
     const type = nr() < 0.25 + reg.rust * 0.5 ? 'ore' : 'stone';
     nodes.push({ type, x, z, y: heightAt(x, z), s: 1.6 + nr() * 0.6, ry: nr() * 6.28, foot: { kind: 'circle', x, z, r: 1.4 } });
   }
-  const out = { bigRocks, ruins, nodes };
+  const out = { bigRocks, ruins, nodes, cache };
   solidCache.set(key, out);
   if (solidCache.size > 600) solidCache.delete(solidCache.keys().next().value);
   return out;

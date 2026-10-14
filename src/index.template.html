@@ -161,6 +161,10 @@ button{font:inherit;color:inherit}
 
 /* ミニマップ・地図 */
 #minimap{position:absolute;right:calc(10px + var(--sr));top:calc(66px + var(--st));width:104px;height:104px;border-radius:12px;border:1px solid var(--line);pointer-events:auto;background:#2a221b}
+#weatherLabel{margin-left:6px;font-size:14px;color:#cdbfa8}
+#weatherLabel.bad{color:#f0c27a;font-weight:700}
+#alertBar{position:absolute;left:50%;top:calc(186px + var(--st));transform:translateX(-50%);max-width:calc(100% - 24px);background:rgba(150,40,28,.9);padding:6px 14px;border-radius:10px;font-size:14px;font-weight:700;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.4);animation:alertPulse 1.6s ease-in-out infinite}
+@keyframes alertPulse{50%{background:rgba(110,28,20,.9)}}
 #townBadge{position:absolute;right:calc(10px + var(--sr));top:calc(176px + var(--st));max-width:150px;background:rgba(0,0,0,.45);padding:4px 8px;border-radius:8px;font-size:14px;text-align:right}
 #mapPanel{position:fixed;inset:0;z-index:45;background:rgba(20,16,13,.97);padding:calc(10px + var(--st)) calc(10px + var(--sr)) calc(10px + var(--sb)) calc(10px + var(--sl));display:flex;flex-direction:column;gap:8px;overflow:auto;touch-action:pan-y}
 #mapPanel .mhead{display:flex;flex-direction:column;gap:2px;font-size:14px}
@@ -221,7 +225,7 @@ button{font:inherit;color:inherit}
   <div class="build">ビルド __BUILD__<br>__BUILD_TIME__</div>
   <div class="logo">__TITLE__</div>
   <div class="sub">__SUBTITLE__</div>
-  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 5：拠点づくりの検証版</div>
+  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 6：襲撃・天候・世界の出来事の検証版</div>
   <div class="col">
     <button class="btn primary cont hide" id="contBtn">つづきから<small id="contInfo"></small></button>
     <button class="btn" id="newBtn">はじめから</button>
@@ -232,7 +236,7 @@ button{font:inherit;color:inherit}
 
 <div id="hud" class="hide">
   <div class="top">
-    <div id="clock"><span id="dayLabel">1日目</span><b><span id="timeLabel">--:--</span> <span class="money" id="moneyLabel">0</span></b></div>
+    <div id="clock"><span style="white-space:nowrap"><span id="dayLabel">1日目</span><span id="weatherLabel"></span></span><b><span id="timeLabel">--:--</span> <span class="money" id="moneyLabel">0</span></b></div>
     <div id="speeds">
       <button class="btn" data-s="0">停止</button>
       <button class="btn" data-s="0.5">0.5</button>
@@ -242,6 +246,7 @@ button{font:inherit;color:inherit}
     </div>
   </div>
   <div id="pauseBadge" class="hide">一時停止中</div>
+  <div id="alertBar" class="hide"></div>
   <canvas id="minimap" width="208" height="208" aria-label="ミニマップ"></canvas>
   <div id="townBadge" class="hide"></div>
   <div id="debug" class="hide"></div>

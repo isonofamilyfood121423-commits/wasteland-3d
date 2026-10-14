@@ -1,6 +1,6 @@
 // アイテム定義（食料・医療・素材・義肢・武器・防具）。追加・調整はこのファイルで行う
 
-export const ITEM_CATS = { weapon: '武器', armor: '防具', food: '食料', med: '医療', trade: '交易品', material: '素材', limb: '義肢' };
+export const ITEM_CATS = { weapon: '武器', armor: '防具', food: '食料', med: '医療', trade: '交易品', material: '素材', limb: '義肢', relic: '遺物' };
 
 // 品質：武器の威力・防具の防御力に掛かる倍率
 export const QUALITY_NAMES = ['粗悪', '普通', '上質', '逸品'];
@@ -49,6 +49,10 @@ export const ITEMS = {
   iron_ore: { label: '鉄鉱石', cat: 'material', weight: 3, price: 10 },
   grain: { label: '穀物', cat: 'material', weight: 0.5, price: 4 },
   flatbread: { label: '平焼きパン', cat: 'food', weight: 0.3, food: 80, price: 14 },
+  // 遺物（Phase 6）：遺跡で見つかる研究素材。高く売れる
+  relic_part: { label: '古代の部品', cat: 'relic', weight: 1, price: 110 },
+  relic_record: { label: '古い記録板', cat: 'relic', weight: 0.5, price: 180 },
+  relic_core: { label: '動力核', cat: 'relic', weight: 2, price: 650 },
   // 素材
   scrap: { label: '鉄くず', cat: 'material', weight: 4, price: 6 },
   // 義肢

@@ -33,9 +33,13 @@ export const TECHS = {
   weaponsmith: { label: '武器づくり', cost: 100, requires: ['smelting'], desc: '武器作業台で武器を作れる' },
   armorsmith: { label: '防具づくり', cost: 100, requires: ['smelting'], desc: '防具作業台で防具を作れる' },
   irongate: { label: '鉄の門', cost: 90, requires: ['smelting'], desc: '丈夫な鉄の門' },
-  towers: { label: '防衛塔', cost: 140, requires: ['weaponsmith'], desc: '自動で矢を放つ塔' },
-  mastery: { label: '上質な鍛冶', cost: 220, requires: ['weaponsmith', 'armorsmith'], desc: '作る武器・防具の品質が1段上がりやすくなる' },
+  towers: { label: '防衛塔', cost: 140, requires: ['weaponsmith'], items: { relic_part: 1 }, desc: '自動で矢を放つ塔' },
+  mastery: { label: '上質な鍛冶', cost: 220, requires: ['weaponsmith', 'armorsmith'], items: { relic_record: 2 }, desc: '作る武器・防具の品質が1段上がりやすくなる' },
+  // Phase 6：遺跡の遺物（研究素材）が必要な研究
+  prosthetics: { label: '義肢づくり', cost: 160, requires: ['armorsmith'], items: { relic_part: 2 }, desc: '防具作業台で粗末な義肢を作れる' },
+  advlimbs: { label: '上等な義肢', cost: 260, requires: ['prosthetics'], items: { relic_record: 1, relic_core: 1 }, desc: '防具作業台で上等な義肢を作れる' },
 };
+// items: 研究を始めるときに倉庫から使う遺物（遺跡で見つかる）
 // 仕様判断：檻は最初から建てられる（捕まえた賞金首を置いておけるように）
 
 // ---- 作業台のレシピ ----
@@ -55,6 +59,8 @@ export const RECIPES = {
     { id: 'leather_vest', label: '革の胴着', in: { trade_cloth: 3, trade_iron: 1 }, out: 'leather_vest', work: 25, skill: 'smith', quality: true },
     { id: 'iron_helm', label: '鉄兜', in: { trade_iron: 3 }, out: 'iron_helm', work: 30, skill: 'smith', quality: true },
     { id: 'iron_plate', label: '鉄の胸当て', in: { trade_iron: 6 }, out: 'iron_plate', work: 50, skill: 'smith', quality: true },
+    { id: 'limb_crude', label: '粗末な義肢', in: { trade_iron: 3, relic_part: 1 }, out: 'limb_crude', work: 40, skill: 'smith', tech: 'prosthetics' },
+    { id: 'limb_good', label: '上等な義肢', in: { trade_iron: 5, relic_part: 2, relic_record: 1 }, out: 'limb_good', work: 70, skill: 'smith', tech: 'advlimbs' },
   ],
 };
 

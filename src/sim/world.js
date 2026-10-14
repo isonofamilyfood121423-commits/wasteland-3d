@@ -11,6 +11,10 @@ import { bindWorld, stepFactions, onDeath, onTreatOther } from './factions.js';
 import { ensureTownObstacles, allTowns } from './towns.js';
 import { stepBase, stepWork, freeBed, defaultJobs, refreshBlocking } from './base.js';
 import { resetBlocked } from './pathfind.js';
+import { stepWeather } from './weather.js';
+import { stepRaids, begin as beginRaid, ensureRaid } from './raids.js';
+import { stepTraffic } from './traffic.js';
+import { stepRuins, stepSearch } from './ruins.js';
 import { ROLES, TRADE } from '../data/world.js';
 import { QUALITY_MUL } from '../data/items.js';
 import {
@@ -101,6 +105,7 @@ export function createWorld(seed) {
     squads: [],
     time: 0,          // ゲーム内の経過秒（1x で現実の秒と同じ）
     banditsOn: true,  // 盗賊の出現（設定で切り替え）
+    raidFreq: 'normal', // 拠点への襲撃の頻度（はじめる時に選ぶ・設定で変更可）
     log: [],
   };
   attachRuntime(w);
@@ -278,7 +283,7 @@ export function stepWorld(w, dt) {
       if (p.carriedBy) { followCarrier(w, p); continue; }
       if (p.carrying && p.state !== 'ok') dropCarried(w, p);
       if (p.state !== 'ok') { if (p.fight) p.fight.act = null; p.speed = 0; continue; }
-      const busy = stepCombatTask(w, p, hours) || stepWork(w, p, h);
+      const busy = stepCombatTask(w, p, hours) || stepWork(w, p, h) || stepSearch(w, p, hours);
       if (!busy) stepTask(w, p, hours);
       const fight = busy || p.task?.kind === 'treat' ? null : stepFight(w, p, h);
       if (fight === 'hold') { p.speed = Math.max(0, p.speed - h * 8); p.moveMode = 'run'; continue; }
@@ -288,6 +293,10 @@ export function stepWorld(w, dt) {
   }
   stepSquads(w, makePerson, gdt);
   stepBase(w, gdt);
+  stepWeather(w, gdt);
+  stepRaids(w, makePerson, gdt);
+  stepTraffic(w, makeTownPerson, gdt);
+  stepRuins(w, gdt);
   w.lodTimer = (w.lodTimer || 0) - gdt;
   if (w.lodTimer <= 0) { w.lodTimer = 1; updateLod(w); stepFactions(w); }
   w.fleeTimer = (w.fleeTimer || 0) - gdt;
@@ -374,6 +383,11 @@ function stepPerson(w, p, dt) {
   const mob = mobility(p);
   p.moveMode = mob.mode;
   if (mob.mode === 'none') { p.speed = 0; return; }
+  // 話しかけられて立ち止まっている（町の人・流れ者）
+  if (p.holdUntil && w.time < p.holdUntil && p.kind !== 'party' && !p.fight?.target) {
+    p.path.length = 0; p.goal = null; p.speed = Math.max(0, p.speed - dt * 8);
+    return;
+  }
   let moved = 0;
   if (p.path.length) {
     const wp = p.path[0];
@@ -537,5 +551,6 @@ export const debug = {
     w.squads.push(sq);
     addLog(w, '盗賊の一団が現れた！（検証用）');
   },
+  raid(w) { ensureRaid(w); return beginRaid(w, null, makePerson); },
   giveLimb(w, p) { addItem(p, 'limb_crude', 1); addLog(w, `${p.name}に粗末な義肢を持たせた（検証用）。`); },
 };

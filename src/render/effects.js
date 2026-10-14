@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { heightAt } from '../sim/terrain.js';
 
-const COLORS = { hit: 0x9e2a1e, sever: 0x8a1e14, block: 0xd8d0b8, dodge: 0xb39b74 };
+const COLORS = { hit: 0x9e2a1e, sever: 0x8a1e14, block: 0xd8d0b8, dodge: 0xb39b74, siege: 0xa89a84, collapse: 0x9c8c74 };
 
 export class Effects {
   constructor(scene, max = 160) {
@@ -32,8 +32,9 @@ export class Effects {
         this.flying.push({ x0: e.fx, y0, z0: e.fz, x1: e.x, y1, z1: e.z, t: 0, dur: Math.max(0.12, Math.hypot(e.x - e.fx, e.z - e.fz) / 45) });
         continue;
       }
-      const n = e.kind === 'sever' ? 22 : e.kind === 'hit' ? 10 : 7;
-      const y = heightAt(e.x, e.z) + (e.kind === 'dodge' ? 0.15 : 1.15);
+      if (!COLORS[e.kind]) continue;
+      const n = e.kind === 'collapse' ? 40 : e.kind === 'sever' ? 22 : e.kind === 'hit' ? 10 : 7;
+      const y = heightAt(e.x, e.z) + (e.kind === 'dodge' ? 0.15 : e.kind === 'collapse' ? 0.8 : e.kind === 'siege' ? 1.6 : 1.15);
       const dx = e.x - e.fx, dz = e.z - e.fz, l = Math.hypot(dx, dz) || 1;
       for (let i = 0; i < n; i++) {
         if (this.parts.length >= this.max) this.parts.shift();
@@ -42,7 +43,7 @@ export class Effects {
           vx: (dx / l) * (1 + Math.random() * 2) + (Math.random() - 0.5) * 2,
           vy: 1 + Math.random() * 2.5,
           vz: (dz / l) * (1 + Math.random() * 2) + (Math.random() - 0.5) * 2,
-          life: 0.5 + Math.random() * 0.4, color: COLORS[e.kind], s: e.kind === 'block' ? 0.6 : 1,
+          life: 0.5 + Math.random() * 0.4, color: COLORS[e.kind], s: e.kind === 'block' ? 0.6 : e.kind === 'collapse' ? 3 : e.kind === 'siege' ? 1.6 : 1,
         });
       }
     }
