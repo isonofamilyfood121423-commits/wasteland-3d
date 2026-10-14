@@ -58,7 +58,18 @@ export function chunkSolids(cx, cz) {
       if (s > 1.3) box(o); else ruins.push(o);
     }
   }
-  const out = { bigRocks, ruins };
+  // 資源の鉱脈・石切り場（Phase 5）：錆の荒地ほど鉄鉱石が多い。掘っても尽きない
+  const nodes = [];
+  const nr = mulberry32(Math.floor(hash2(cx, cz, WORLD.seed + 23) * 2 ** 31));
+  for (let i = 0; i < 2; i++) {
+    const x = ox + 6 + nr() * (S - 12), z = oz + 6 + nr() * (S - 12);
+    const reg = regionAt(x, z);
+    const roll = nr();
+    if (roll > 0.28 || !clearSpot(x, z, 20) || slopeAt(x, z) > 0.5) continue;
+    const type = nr() < 0.25 + reg.rust * 0.5 ? 'ore' : 'stone';
+    nodes.push({ type, x, z, y: heightAt(x, z), s: 1.6 + nr() * 0.6, ry: nr() * 6.28, foot: { kind: 'circle', x, z, r: 1.4 } });
+  }
+  const out = { bigRocks, ruins, nodes };
   solidCache.set(key, out);
   if (solidCache.size > 600) solidCache.delete(solidCache.keys().next().value);
   return out;
@@ -97,7 +108,8 @@ function chunkDecor(cx, cz, density) {
 export function chunkProps(cx, cz, density) {
   const sol = chunkSolids(cx, cz);
   const dec = chunkDecor(cx, cz, density);
-  return { rocks: sol.bigRocks.concat(dec.rocks), grass: dec.grass, ruins: sol.ruins };
+  const nodes = sol.nodes.map((n) => ({ x: n.x, z: n.z, y: n.y - 0.3, s: n.s, sy: 0.8, ry: n.ry, tilt: 0.1, tone: 0.5, nodeType: n.type }));
+  return { rocks: sol.bigRocks.concat(dec.rocks, nodes), grass: dec.grass, ruins: sol.ruins };
 }
 
 // 地平線のシルエットを作る巨大遺構（常時表示）

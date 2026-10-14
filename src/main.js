@@ -20,6 +20,12 @@ import { isWanted, fineFor, payFine, handoverCandidates, handOver, changeRep } f
 import { townLayout, townById } from './sim/towns.js';
 import { townAt } from './sim/terrain.js';
 import { LINES } from './data/dialog.js';
+import { BaseView } from './render/baseView.js';
+import {
+  ensureBase, canPlace, placeBuilding, placeWall, snapPos, footprint, missingFor, buildableTypes, unlocked, techAvailable,
+  stockCount, stockTake, stockAdd, parseKey, demolish, toggleGate, powerState, freeBed, cagePrisoner, releaseCage, defaultJobs,
+} from './sim/base.js';
+import { BUILDINGS, TECHS, RECIPES, JOBS, BASE } from './data/build.js';
 import { Effects } from './render/effects.js';
 import { Atmosphere } from './render/atmosphere.js';
 import { TerrainView } from './render/terrainView.js';
@@ -61,6 +67,7 @@ const humans = new HumanView(scene, 300);
 const markers = new Markers(scene);
 const effects = new Effects(scene);
 const towns = new TownView(scene);
+const baseView = new BaseView(scene);
 const rig = new CameraRig(camera, canvas);
 
 let world = createWorld(WORLD.seed); // タイトル背景にも使う
@@ -85,6 +92,7 @@ function applyQuality(name) {
   atmosphere.setShadows(q.shadows, q.shadowMap);
   humans.setShadows(q.shadows);
   towns.setShadows(q.shadows);
+  baseView.setShadows(q.shadows);
   terrain.setQuality(q);
   scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
   resize();
@@ -373,7 +381,10 @@ rig.onTap = async (x, y) => {
     return;
   }
   const g = screenToGround(camera, x, y);
-  if (g) moveSelectedTo(g.x, g.z);
+  if (!g) return;
+  const bld = buildingAt(g.x, g.z);
+  if (bld && !buildMode) { buildingActions(bld); return; }
+  moveSelectedTo(g.x, g.z);
 };
 
 rig.onLongPress = async (x, y) => {
@@ -383,6 +394,8 @@ rig.onLongPress = async (x, y) => {
   if (p) return personActions(p);
   const g = screenToGround(camera, x, y);
   if (!g) return;
+  const bld = buildingAt(g.x, g.z);
+  if (bld) { buildingActions(bld); return; }
   showActions('この地点', `${Math.round(g.x)}, ${Math.round(g.z)}`, [
     { label: '選択中の仲間を移動', run: () => moveSelectedTo(g.x, g.z) },
     { label: '全員をここへ', run: () => { const all = partyOf(world); orderMove(world, all.map((m) => m.id), g.x, g.z); selected.clear(); all.forEach((m) => selected.add(m.id)); updatePartyMarks(); } },
@@ -481,7 +494,7 @@ function renderSheet() {
   });
   const body = $('sheetBody');
   body.innerHTML = '';
-  ({ party: sheetParty, save: sheetSave, log: sheetLog, settings: sheetSettings, person: sheetPerson, factions: sheetFactions, shop: sheetShop })[sheetTab](body);
+  ({ party: sheetParty, save: sheetSave, log: sheetLog, settings: sheetSettings, person: sheetPerson, factions: sheetFactions, shop: sheetShop, base: sheetBase })[sheetTab](body);
 }
 
 let personId = null, personSub = 'body';
@@ -754,6 +767,8 @@ function loop(now) {
   terrain.update(focus, k.fog, running ? 2 : 6);
   towns.update(focus, q.fogFar + rig.dist + 60);
   world.focus = focus;
+  baseView.update(world, elapsed);
+  if (buildMode) updateBuildPreview();
   humans.update(world.people, focus, elapsed);
   if (world.events?.length) { effects.spawn(world.events); world.events.length = 0; }
   effects.update(dt);
@@ -1022,11 +1037,13 @@ function renderMapPanel() {
   const party = partyOf(world).filter((m) => m.state !== 'dead');
   const c = mapZoom >= 4000 ? { x: 0, z: 0 } : party.length ? { x: party[0].x, z: party[0].z } : rig.target;
   mapView = drawMap($('mapCanvas'), world, c, mapZoom, { labels: true, camera: rig.target });
-  $('mapTowns').innerHTML = TOWNS.map((t) => {
+  const baseRow = world.base?.founded ? `<div class="trow"><i style="background:#e9b47a"></i><span>拠点</span><span class="muted">${party.length ? Math.round(Math.hypot(world.base.x - party[0].x, world.base.z - party[0].z)) : 0}m</span><button class="btn" data-gobase="1">ここへ</button></div>` : '';
+  $('mapTowns').innerHTML = baseRow + TOWNS.map((t) => {
     const known = world.discovered?.[t.id];
     const d = party.length ? Math.round(Math.hypot(t.x - party[0].x, t.z - party[0].z)) : 0;
     return `<div class="trow"><i style="background:#${(FACTIONS[t.faction].accent || 0x888888).toString(16).padStart(6, '0')}"></i><span>${known ? `${t.name}（${FACTIONS[t.faction].label}）` : '未発見の場所'}</span><span class="muted">${known ? `${d}m` : ''}</span>${known ? `<button class="btn" data-go="${t.id}">ここへ</button>` : ''}</div>`;
   }).join('');
+  $('mapTowns').querySelectorAll('[data-gobase]').forEach((b) => { b.onclick = () => goTo(world.base.x + 3, world.base.z + 3, '拠点'); });
   $('mapTowns').querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => { const t = townById(b.dataset.go); goTo(t.x + 4, t.z + 4, t.name); }; });
 }
 function goTo(x, z, label) {
@@ -1046,6 +1063,195 @@ $('mapCanvas').addEventListener('click', (e) => {
 document.querySelectorAll('#mapPanel [data-zoom]').forEach((b) => { b.onclick = () => { mapZoom = +b.dataset.zoom; renderMapPanel(); }; });
 $('mapClose').onclick = () => $('mapPanel').classList.add('hide');
 
+// =====================================================================
+// 拠点：建物のタップ・建築モード（照準）・拠点タブ
+// =====================================================================
+function buildingAt(x, z) {
+  const base = world.base;
+  if (!base) return null;
+  for (const b of base.buildings) {
+    if (b.wallSeg) { if (Math.hypot(b.x - x, b.z - z) < 1.3) return b; continue; }
+    const fp = footprint(b.type, b.x, b.z, b.rot);
+    if (Math.abs(x - fp.x) < fp.w / 2 + 0.3 && Math.abs(z - fp.z) < fp.d / 2 + 0.3) return b;
+  }
+  return null;
+}
+
+function buildingActions(b) {
+  const B = BUILDINGS[b.type];
+  const acts = [];
+  let sub = b.done ? '完成' : `建設中 ${Math.round((b.progress / B.work) * 100)}%`;
+  if (!b.done && !b.paid) { const miss = missingFor(world, B.cost); if (miss.length) sub += `・材料不足（${miss.join('、')}）`; }
+  if (b.done) {
+    if (B.gate) acts.push({ label: b.open ? '門を閉める' : '門を開ける', run: () => { toggleGate(world, b); toast(b.open ? '門を開けました' : '門を閉めました（敵も味方も通れません）'); } });
+    if (b.type === 'storage') acts.push({ label: '倉庫を見る', run: () => { baseSub = 'stock'; openSheet('base'); } });
+    if (b.type === 'bed') acts.push({ label: '寝かせる', run: () => { const s = selectedParty().filter((m) => m.state === 'ok'); if (!s.length) { toast('仲間を選択してください'); return; } orderRest(world, [s[0].id]); } });
+    if (b.type === 'research') acts.push({ label: '研究を選ぶ', run: () => { baseSub = 'research'; openSheet('base'); } });
+    if (b.type === 'forge' || b.type === 'armorer') acts.push({ label: '作る物を予約', run: () => { baseSub = 'craft'; openSheet('base'); } });
+    if (b.type === 'farm') sub += `・${{ empty: '種まき待ち', growing: `育成中 ${Math.round(b.crop.t * 100)}%`, ripe: '収穫できる' }[b.crop.stage]}`;
+    if (B.power) sub += `・電力 ${B.power > 0 ? '+' : ''}${B.power}`;
+    if (b.type === 'cage') {
+      const inside = world.people.find((o) => o.caged === b.id);
+      if (inside) { sub += `・${inside.name}を収容中`; acts.push({ label: '出す', run: () => { const t = releaseCage(world, b); if (t) toast(`${t.name}を檻から出した`); } }); }
+      else acts.push({ label: '檻に入れる', run: () => { const c = selectedParty().find((m) => m.carrying); if (!c) { toast('縛った人を担いでいる仲間を選択してください'); return; } if (Math.hypot(c.x - b.x, c.z - b.z) > 4) { toast('檻のそばまで運んでください'); return; } cagePrisoner(world, c, b); } });
+    }
+  }
+  acts.push({ label: '取り壊す', run: async () => { if (await confirmBox(`${B.label}を取り壊しますか？${b.done ? '材料の半分が倉庫に戻ります。' : '材料は戻ります。'}`, '取り壊す', true)) demolish(world, b); } });
+  showActions(B.label, sub, acts);
+}
+
+// ---- 建築モード ----
+let buildMode = null, buildInfoTimer = 0;
+function enterBuild(type) {
+  closeSheet(); closePop();
+  buildMode = { type, rot: 0, start: null, ok: false, pos: null };
+  $('reticle').classList.remove('hide');
+  $('buildBar').classList.remove('hide');
+  document.querySelector('#hud .bottom').classList.add('hide');
+  renderBuildBar();
+  toast(BUILDINGS[type].wall ? '照準を始点に合わせて「始点」を押してください' : '画面を動かして照準を建てたい場所に合わせてください');
+}
+function exitBuild() {
+  buildMode = null;
+  baseView.hidePreview();
+  $('reticle').classList.add('hide');
+  $('buildBar').classList.add('hide');
+  document.querySelector('#hud .bottom').classList.remove('hide');
+}
+function renderBuildBar() {
+  const m = buildMode;
+  const B = BUILDINGS[m.type];
+  const btns = $('buildBtns');
+  btns.innerHTML = '';
+  const add = (label, fn, cls = '') => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.textContent = label; b.onclick = fn; btns.appendChild(b); };
+  if (B.wall) {
+    if (!m.start) add('始点', () => { if (m.pos) { m.start = { x: Math.round(m.pos.x), z: Math.round(m.pos.z) }; renderBuildBar(); } }, 'primary');
+    else add('終点', () => {
+      if (!m.pos) return;
+      const res = placeWall(world, m.start.x, m.start.z, Math.round(m.pos.x), Math.round(m.pos.z));
+      toast(res.ok ? `石壁を${res.count}区画置きました${res.reason ? `（${res.reason}）` : ''}` : res.reason || '置けませんでした');
+      if (res.ok) m.start = { x: Math.round(m.pos.x), z: Math.round(m.pos.z) }; // 続けて引ける
+      renderBuildBar();
+    }, 'primary');
+    if (m.start) add('始点を外す', () => { m.start = null; renderBuildBar(); });
+  } else {
+    add('回転', () => { m.rot = (m.rot + 1) % 4; });
+    add('確定', () => {
+      if (!m.pos) return;
+      const res = placeBuilding(world, m.type, m.pos.x, m.pos.z, m.rot);
+      if (!res.ok) { toast(res.reason); return; }
+      vibrate(15);
+      const miss = missingFor(world, B.cost);
+      toast(`${B.label}の建設予定地を置きました${miss.length ? `。材料が足りません（${miss.join('、')}）` : '。「建築」の仕事をしている仲間が建てます'}`);
+    }, 'primary');
+  }
+  add('やめる', exitBuild);
+}
+function updateBuildPreview() {
+  const m = buildMode;
+  const g = screenToGround(camera, window.innerWidth / 2, window.innerHeight * 0.45);
+  if (!g) { baseView.hidePreview(); m.pos = null; return; }
+  const B = BUILDINGS[m.type];
+  if (B.wall) {
+    m.pos = g;
+    if (m.start) {
+      const len = Math.hypot(g.x - m.start.x, g.z - m.start.z);
+      const n = Math.max(1, Math.round(len / 2)), ang = Math.atan2(g.z - m.start.z, g.x - m.start.x);
+      const segs = [];
+      for (let i = 0; i < n; i++) { const t = (i + 0.5) / n; segs.push({ x: m.start.x + (g.x - m.start.x) * t, z: m.start.z + (g.z - m.start.z) * t, angle: ang, len: len / n }); }
+      baseView.showPreview('wall', 0, 0, 0, true, segs);
+    } else baseView.showPreview('wall', g.x, g.z, 0, true, [{ x: g.x, z: g.z, angle: 0, len: 2 }]);
+  } else {
+    const sp = snapPos(m.type, g.x, g.z, m.rot);
+    m.pos = sp;
+    const chk = canPlace(world, m.type, sp.x, sp.z, m.rot);
+    m.ok = chk.ok; m.reason = chk.reason;
+    baseView.showPreview(m.type, sp.x, sp.z, m.rot, chk.ok);
+  }
+  buildInfoTimer -= 1;
+  if (buildInfoTimer <= 0) {
+    buildInfoTimer = 15;
+    const miss = missingFor(world, B.cost);
+    const cost = Object.entries(B.cost).map(([id, n]) => `${ITEMS[id].label}${n}`).join('・');
+    $('buildInfo').innerHTML = `<b>${B.label}</b>　材料：${cost}${miss.length ? `　<span class="ng">不足：${miss.join('、')}</span>` : ''}<br>${B.wall ? (m.start ? '照準を終点に合わせて「終点」' : '照準を始点に合わせて「始点」') : m.ok ? '置けます' : `<span class="ng">${m.reason || ''}</span>`}`;
+  }
+}
+
+// ---- 拠点タブ ----
+let baseSub = 'build';
+function sheetBase(body) {
+  const base = ensureBase(world);
+  const pw = powerState(world);
+  body.innerHTML = `<div class="subtabs">${[['build', '建設'], ['stock', '倉庫'], ['jobs', '仕事'], ['research', '研究'], ['craft', '生産']].map(([k, l]) => `<button class="btn ${baseSub === k ? 'on' : ''}" data-bsub="${k}">${l}</button>`).join('')}</div>
+    <div class="note">${base.founded ? `拠点：建物${base.buildings.filter((b) => b.done).length}・建設中${base.buildings.filter((b) => !b.done).length}・電力 ${pw.supply}/${pw.demand}${pw.ok ? '' : '（不足）'}` : 'まだ拠点がありません。最初の建物を置いた場所が拠点になります（範囲は中心から' + BASE.radius + 'm）。'}</div>
+    <div id="bsub"></div>`;
+  body.querySelectorAll('[data-bsub]').forEach((b) => { b.onclick = () => { baseSub = b.dataset.bsub; renderSheet(); }; });
+  const el = body.querySelector('#bsub');
+  if (baseSub === 'build') {
+    let html = '';
+    for (const t of Object.keys(BUILDINGS)) {
+      const B = BUILDINGS[t];
+      const ok = unlocked(world, t);
+      const miss = missingFor(world, B.cost);
+      const cost = Object.entries(B.cost).map(([id, n]) => `${ITEMS[id].label}${n}`).join('・');
+      html += `<div class="irow"><div class="info"><b>${B.label}</b>　<small class="muted">${cost}</small><br><small class="muted">${ok ? B.desc : `研究「${TECHS[B.tech].label}」で解放`}</small>${ok && miss.length ? `<br><small style="color:#ff8f7a">不足：${miss.join('、')}</small>` : ''}</div>${ok ? `<button class="btn" data-build="${t}">建てる</button>` : ''}</div>`;
+    }
+    el.innerHTML = html + '<div class="note">材料は倉庫と、拠点にいる仲間の持ち物から使われます。石材は石切り場（灰色の岩）で掘るか、雑貨屋で買えます。鉄板は町で買うか、精錬炉で鉄鉱石（赤茶色の岩）から作ります。</div>';
+    el.querySelectorAll('[data-build]').forEach((b) => { b.onclick = () => enterBuild(b.dataset.build); });
+  } else if (baseSub === 'stock') {
+    const keys = Object.keys(base.stock).filter((k) => base.stock[k] > 0);
+    const who = selectedParty().find((m) => m.state !== 'dead') || partyOf(world).find((m) => m.state === 'ok');
+    let html = `<h3>倉庫の中身</h3>`;
+    if (!keys.length) html += '<div class="note">空です。採掘した物や作った物はここに入ります。</div>';
+    for (const k of keys) { const { id, q } = parseKey(k); html += `<div class="irow"><div class="info"><b>${itemLabel(id, q)}</b> ×${base.stock[k]}</div><button class="btn" data-take="${k}">取り出す</button></div>`; }
+    if (who) {
+      const inBase = base.founded && Math.hypot(who.x - base.x, who.z - base.z) < BASE.radius;
+      html += `<h3>${who.name}の持ち物をしまう</h3>`;
+      if (!inBase) html += '<div class="note">拠点の中にいる仲間だけがしまえます。</div>';
+      else who.inv.forEach((st, i) => { html += `<div class="irow"><div class="info"><b>${itemLabel(st.id, st.q)}</b> ×${st.qty}</div><button class="btn" data-put="${i}">しまう</button><button class="btn" data-putall="${i}">全部</button></div>`; });
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('[data-take]').forEach((b) => { b.onclick = () => { if (!who) return; const { id, q } = parseKey(b.dataset.take); if (stockTake(world, id, 1, q)) addItem(who, id, 1, q); renderSheet(); }; });
+    el.querySelectorAll('[data-put],[data-putall]').forEach((b) => { b.onclick = () => { const st = who.inv[+(b.dataset.put ?? b.dataset.putall)]; if (!st) return; const n = b.dataset.putall !== undefined ? st.qty : 1; const q = st.q ?? 1; if (removeItem(who, st.id, n, q)) stockAdd(world, st.id, n, q); renderSheet(); }; });
+  } else if (baseSub === 'jobs') {
+    const party = partyOf(world).filter((m) => m.state !== 'dead');
+    const cols = `76px repeat(${JOBS.length}, 1fr)`;
+    let html = `<div class="note">数字は優先度（1が最優先）。押すたびに 1→2→3→なし と切り替わります。拠点の中で手が空いている仲間が、自動で仕事をします。</div><div class="jobgrid" style="grid-template-columns:${cols}"><span></span>${JOBS.map((j) => `<span class="h">${j.label}</span>`).join('')}`;
+    for (const m of party) {
+      m.jobs = m.jobs || defaultJobs();
+      html += `<span>${m.name}</span>` + JOBS.map((j) => `<button class="btn ${m.jobs[j.id] ? 'on' : ''}" data-job="${m.id}:${j.id}">${m.jobs[j.id] || '-'}</button>`).join('');
+    }
+    el.innerHTML = html + '</div>';
+    el.querySelectorAll('[data-job]').forEach((b) => { b.onclick = () => { const [id, j] = b.dataset.job.split(':'); const m = personById(world, +id); m.jobs[j] = ((m.jobs[j] || 0) + 1) % 4; renderSheet(); }; });
+  } else if (baseSub === 'research') {
+    const r = base.research;
+    let html = `<div class="note">研究台を建て、「研究」の仕事を割り当てた仲間が進めます。電力があると2倍の速さです。</div>`;
+    if (r.current) html += `<div class="stat"><span>研究中</span><div class="bar"><i style="width:${(r.progress / TECHS[r.current].cost) * 100}%"></i></div><em>${TECHS[r.current].label}</em></div>`;
+    for (const [id, T] of Object.entries(TECHS)) {
+      const doneT = r.done.includes(id), av = techAvailable(world, id);
+      const req = T.requires.filter((x) => !r.done.includes(x)).map((x) => TECHS[x].label).join('・');
+      html += `<div class="tech ${doneT ? 'done' : ''}"><div class="info"><b>${T.label}</b>　<span class="muted">${T.cost}</span><br>${T.desc}${req ? `<br><span class="muted">先に：${req}</span>` : ''}</div>${doneT ? '<span class="muted">完了</span>' : r.current === id ? '<span class="money">研究中</span>' : av ? `<button class="btn" data-tech="${id}">研究する</button>` : ''}</div>`;
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('[data-tech]').forEach((b) => { b.onclick = () => { if (r.current !== b.dataset.tech) r.progress = 0; r.current = b.dataset.tech; toast(`「${TECHS[r.current].label}」を研究します`); renderSheet(); }; });
+  } else {
+    let html = '<div class="note">精錬炉（鉄鉱石3→鉄板）と調理台（穀物2→平焼きパン）は、材料が倉庫にあれば「加工」「調理」の仕事で自動で作ります。武器・防具は予約した分だけ作ります。出来た物は倉庫に入ります。</div>';
+    for (const type of ['forge', 'armorer']) {
+      const has = base.buildings.some((b) => b.done && b.type === type);
+      html += `<h3>${BUILDINGS[type].label}${has ? '' : '（未建設）'}</h3>`;
+      const q = base.queues[type];
+      if (q.length) html += `<div class="note">予約：${q.map((id) => RECIPES[type].find((x) => x.id === id)?.label).join('、')}　<button class="btn" data-clear="${type}">取り消し</button></div>`;
+      for (const r of RECIPES[type]) {
+        const ins = Object.entries(r.in).map(([id, n]) => `${ITEMS[id].label}${n}（${stockCount(world, id)}）`).join('・');
+        html += `<div class="irow"><div class="info"><b>${r.label}</b><br><small class="muted">${ins}</small></div>${has ? `<button class="btn" data-queue="${type}:${r.id}">予約</button>` : ''}</div>`;
+      }
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('[data-queue]').forEach((b) => { b.onclick = () => { const [t, id] = b.dataset.queue.split(':'); base.queues[t].push(id); renderSheet(); }; });
+    el.querySelectorAll('[data-clear]').forEach((b) => { b.onclick = () => { base.queues[b.dataset.clear] = []; renderSheet(); }; });
+  }
+}
+
 // ---- 起動 ----
 function boot() {
   applyQuality(effectiveQuality());
@@ -1061,4 +1267,4 @@ function boot() {
 boot();
 
 // 自動テスト用
-window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, orderBind, orderCarry, orderAttack, talk, openMap, openSheet, pick: (x, y) => pickPeople(camera, world.people, x, y).length };
+window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, orderBind, orderCarry, orderAttack, talk, openMap, openSheet, enterBuild, exitBuild, placeBuilding, snapPos, ensureBase, setBaseSub: (v) => { baseSub = v; }, serializeNow: () => serialize(world, cameraState(), BUILD.build), pick: (x, y) => pickPeople(camera, world.people, x, y).length };

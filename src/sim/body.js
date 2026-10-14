@@ -208,7 +208,7 @@ export function bodyTick(w, p, hours) {
   }
 
   // 自然回復（出血が止まっている部位のみ。飢餓中は回復しない）
-  const mul = race.healMul * (p.state === 'ko' ? H.koHealMul : p.resting ? H.restMul : 1) * (race.eats && hungerState(p) === 'starving' ? 0 : 1);
+  const mul = race.healMul * (p.state === 'ko' ? H.koHealMul : p.inBed ? H.bedMul : p.resting ? H.restMul : 1) * (race.eats && hungerState(p) === 'starving' ? 0 : 1);
   for (const part of PARTS) {
     const b = p.body[part.id];
     if (b.lost && !b.prosthetic) continue;

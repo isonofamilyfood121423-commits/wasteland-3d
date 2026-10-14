@@ -23,6 +23,7 @@ export const HEALTH = {
   bleedFromDamage: 0.18,// 切り傷：ダメージ×この値が出血量（血液／時）
   naturalHeal: 1.6,     // 自然回復 HP／時（出血が止まっている部位のみ）
   restMul: 3,           // 休息中の回復倍率
+  bedMul: 5,            // 寝床で眠っているときの回復倍率
   koHealMul: 1.5,       // 気絶中の回復倍率
   koMinHours: 0.4,      // 気絶したら最低これだけは起きない
   lostAt: -1.0,         // 手足：最大HP×この値以下で失う
@@ -53,11 +54,11 @@ export const SKILLS = [
   { id: 'theft', label: '窃盗', grow: '店で盗む' },
   { id: 'ranged', label: '射撃', grow: '弓で撃つ' },
   { id: 'medic', label: '医療', grow: '治療する' },
-  { id: 'labor', label: '労働', grow: '採掘・運搬（Phase 5）' },
-  { id: 'cook', label: '料理', grow: '調理する（Phase 5）' },
-  { id: 'farm', label: '農業', grow: '畑仕事（Phase 5）' },
-  { id: 'smith', label: '鍛冶', grow: '作る（Phase 5）' },
-  { id: 'research', label: '研究', grow: '研究する（Phase 5）' },
+  { id: 'labor', label: '労働', grow: '建築・採掘' },
+  { id: 'cook', label: '料理', grow: '調理台で料理する' },
+  { id: 'farm', label: '農業', grow: '畑仕事' },
+  { id: 'smith', label: '鍛冶', grow: '精錬・武器や防具づくり' },
+  { id: 'research', label: '研究', grow: '研究台で研究する' },
 ];
 export const SKILL = Object.fromEntries(SKILLS.map((s) => [s.id, s]));
 export const GROWTH = {

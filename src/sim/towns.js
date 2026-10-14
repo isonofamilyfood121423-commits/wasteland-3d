@@ -93,8 +93,8 @@ export function townLayout(t) {
 
 // 建物と城壁を通行不可に（1回だけ）
 let blocked = false;
-export function ensureTownObstacles() {
-  if (blocked) return;
+export function ensureTownObstacles(force = false) {
+  if (blocked && !force) return;
   blocked = true;
   for (const t of TOWNS) {
     const L = townLayout(t);

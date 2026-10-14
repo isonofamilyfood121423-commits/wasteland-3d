@@ -259,7 +259,8 @@ export class TerrainView {
       e.set(r.tilt, r.ry, r.tilt * 0.7); qt.setFromEuler(e);
       m4.compose(v.set(r.x, r.y, r.z), qt, s.set(r.s, r.s * r.sy, r.s * (0.8 + r.tone * 0.4)));
       rocks.setMatrixAt(i, m4);
-      col.setHex(PALETTE.rock).lerp(tmp.setHex(PALETTE.rustDark), regionAt(r.x, r.z).rust * 0.6).multiplyScalar(0.8 + r.tone * 0.35);
+      if (r.nodeType) col.setHex(r.nodeType === 'ore' ? 0x8a4a2c : 0xb3ab9c); // 鉄鉱石の鉱脈・石切り場は色で見分ける
+      else col.setHex(PALETTE.rock).lerp(tmp.setHex(PALETTE.rustDark), regionAt(r.x, r.z).rust * 0.6).multiplyScalar(0.8 + r.tone * 0.35);
       rocks.setColorAt(i, col);
     });
     rocks.instanceMatrix.needsUpdate = true; if (rocks.instanceColor) rocks.instanceColor.needsUpdate = true;

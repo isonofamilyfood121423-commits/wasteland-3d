@@ -181,6 +181,21 @@ button{font:inherit;color:inherit}
 .frow .desc{font-size:14px;color:var(--ink2);line-height:1.5;margin-top:4px}
 .repbar{height:8px;border-radius:4px;background:linear-gradient(90deg,#c9573f 0%,#6b5a48 30%,#6b5a48 65%,#6fd27a 100%);position:relative;margin-top:8px}
 .repbar i{position:absolute;top:-4px;width:4px;height:16px;background:#efe6d6;border-radius:2px}
+/* 建築モード */
+#reticle{position:fixed;left:50%;top:45%;width:44px;height:44px;margin:-22px 0 0 -22px;z-index:11;pointer-events:none;border:2px solid rgba(239,230,214,.9);border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+#reticle i{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:3px;background:#efe6d6}
+#buildBar{position:fixed;left:0;right:0;bottom:0;z-index:13;background:var(--panel2);border-top:1px solid var(--line);padding:10px calc(10px + var(--sr)) calc(10px + var(--sb)) calc(10px + var(--sl))}
+#buildInfo{font-size:14px;line-height:1.5;margin-bottom:8px}
+#buildInfo b{font-size:16px}
+#buildInfo .ng{color:#ff8f7a}
+#buildBar .row{display:flex;gap:8px}
+#buildBar .btn{flex:1;min-height:56px;font-size:16px}
+.jobgrid{display:grid;gap:4px;align-items:center;font-size:14px}
+.jobgrid .btn{min-height:44px;min-width:0;padding:0;font-size:15px}
+.jobgrid .h{color:var(--ink2);text-align:center;font-size:14px}
+.tech{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px;display:flex;gap:8px;align-items:center}
+.tech .info{flex:1;font-size:14px;line-height:1.45}
+.tech.done{opacity:.6}
 /* 通知 */
 #toast{position:fixed;left:50%;bottom:calc(190px + var(--sb));transform:translateX(-50%);z-index:55;background:var(--panel2);
   border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:88vw;text-align:center}
@@ -206,7 +221,7 @@ button{font:inherit;color:inherit}
   <div class="build">ビルド __BUILD__<br>__BUILD_TIME__</div>
   <div class="logo">__TITLE__</div>
   <div class="sub">__SUBTITLE__</div>
-  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 4：町と派閥の検証版</div>
+  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 5：拠点づくりの検証版</div>
   <div class="col">
     <button class="btn primary cont hide" id="contBtn">つづきから<small id="contInfo"></small></button>
     <button class="btn" id="newBtn">はじめから</button>
@@ -244,6 +259,11 @@ button{font:inherit;color:inherit}
 </div>
 
 <div id="selRect" class="hide"></div>
+<div id="reticle" class="hide"><i></i></div>
+<div id="buildBar" class="hide">
+  <div id="buildInfo"></div>
+  <div class="row" id="buildBtns"></div>
+</div>
 <div id="modeTip" class="hide">指でなぞって囲んだ仲間を選択</div>
 
 <div id="pop" class="pop hide"></div>
@@ -254,6 +274,7 @@ button{font:inherit;color:inherit}
   <div id="tabs">
     <button class="btn" data-tab="party">一団</button>
     <button class="btn" data-tab="save">セーブ</button>
+    <button class="btn" data-tab="base">拠点</button>
     <button class="btn" data-tab="factions">派閥</button>
     <button class="btn" data-tab="log">ログ</button>
     <button class="btn" data-tab="settings">設定</button>

@@ -79,7 +79,7 @@ with sync_playwright() as p:
     pg.tap('#menuBtn'); pg.wait_for_timeout(300)
     pg.click('#tabs [data-tab="save"]'); pg.wait_for_timeout(200)
     shot('6_save.png')
-    pg.click('.slot >> nth=1 >> text=保存'); pg.wait_for_timeout(500)
+    pg.click('.slot >> nth=1 >> button:text-is("保存")'); pg.wait_for_timeout(500)
     check('slot_saved', G('return !!JSON.parse(localStorage.getItem("w3d.slots") || "{}").s1;'))
     pg.click('text=書き出す'); pg.wait_for_timeout(500)
     text = pg.input_value('#dlgText')
@@ -138,7 +138,7 @@ with sync_playwright() as p:
     pg.wait_for_timeout(800)
     shot('16_rest.png')
     # セーブ v2 の往復
-    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=2 >> text=保存'); pg.wait_for_timeout(400)
+    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=2 >> button:text-is("保存")'); pg.wait_for_timeout(400)
     pg.click('.slot >> nth=2 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1200)
     check('v2_roundtrip', G('const P = g.world.people.filter(x=>x.kind==="party"); return P[2].body.legL.lost && P[2].body.legR.lost && P[0].skills && P[0].inv;'))
 
@@ -179,7 +179,7 @@ with sync_playwright() as p:
     shot('20_equip.png')
     pg.click('#closeSheet')
     # セーブ v3 の往復
-    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=3 >> text=保存'); pg.wait_for_timeout(400)
+    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=3 >> button:text-is("保存")'); pg.wait_for_timeout(400)
     pg.click('.slot >> nth=3 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1200)
     check('v3_roundtrip', G('return g.world.people.some(p => p.bound) && g.world.people.filter(x=>x.kind==="party").every(p => p.equip);'))
 
@@ -231,10 +231,54 @@ with sync_playwright() as p:
     pg.wait_for_timeout(2500)
     shot('27_holy_town.png')
     # セーブ v4 の往復
-    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=1 >> text=保存'); pg.wait_for_timeout(300)
-    if pg.is_visible('#dialog'): pg.click('#dlgBtns >> text=上書き'); pg.wait_for_timeout(400)
+    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=1 >> button:text-is("保存")'); pg.wait_for_timeout(300)
+    for _ in range(15):
+        pg.wait_for_timeout(200)
+        if pg.is_visible('#dialog'): pg.click('#dlgBtns >> text=上書き'); break
+    pg.wait_for_timeout(800)
     pg.click('.slot >> nth=1 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1500)
     check('v4_roundtrip', G('return g.world.people.some(p => p.role === "shopkeeper") && g.world.discovered && g.world.discovered.sunamachi;'))
+
+    # ---- Phase 5：拠点建築・仕事・研究 ----
+    G('const w = g.world; w.timeScale = 1; w.hour = 11; w.debugFast = false; const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.state="ok"; p.bound=false; p.jailUntil=0; p.x = 60 + i*1.5; p.z = -60; p.path=[]; p.goal=null; p.task=null; p.inv.push({id:"stone", qty: 20}); p.inv.push({id:"trade_cloth", qty: 4}); p.inv.push({id:"trade_iron", qty: 3}); p.jobs = {build:1, mine:2, farm:2, cook:3, craft:3, research:2}; }); g.rig.target.x = 66; g.rig.target.z = -52; g.rig.dist = 28; g.rig.pitch = 0.85; g.selected.clear(); g.selected.add(P[0].id);')
+    pg.wait_for_timeout(800)
+    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="base"]'); pg.wait_for_timeout(300)
+    shot('28_base_tab.png')
+    pg.click('[data-build="storage"]'); pg.wait_for_timeout(1500)
+    shot('29_build_mode.png')
+    pg.click('#buildBtns >> text=確定'); pg.wait_for_timeout(400)
+    check('site_placed', G('return g.ensureBase(g.world).buildings.length >= 1;'))
+    pg.click('#buildBtns >> text=やめる')
+    # 壁：始点→終点
+    G('g.enterBuild("wall"); g.rig.target.x = 56; g.rig.target.z = -46;')
+    pg.wait_for_timeout(1200)
+    pg.click('#buildBtns >> text=始点')
+    G('g.rig.target.x = 72; g.rig.target.z = -44;')
+    pg.wait_for_timeout(1500)
+    shot('30_wall_preview.png')
+    pg.click('#buildBtns >> text=終点'); pg.wait_for_timeout(300)
+    pg.click('#buildBtns >> text=やめる')
+    check('walls_placed', G('return g.ensureBase(g.world).buildings.filter(b=>b.wallSeg).length >= 3;'))
+    # ほかの建物を置いて早送り
+    G('''const w = g.world; const c = {x: 66, z: -60}; for (const [t,dx,dz,r] of [["bed",4,0,0],["hut",-8,6,0],["farm",10,8,0],["research",-4,0,0],["well",4,-6,0],["cookstove",-2,-6,0]]) { for (const [ox,oz] of [[0,0],[4,0],[-4,0],[0,4],[0,-4],[8,8],[-8,-8]]) { const s = g.snapPos(t, c.x+dx+ox, c.z+dz+oz, r); if (g.placeBuilding(w, t, s.x, s.z, r).ok) break; } } g.ensureBase(w).research.current = "smelting"; w.debugFast = true; g.rig.target.x = 64; g.rig.target.z = -54; g.rig.dist = 34;''')
+    for _ in range(25):
+        pg.wait_for_timeout(1000)
+        if G('return g.ensureBase(g.world).buildings.filter(b=>b.done).length >= 6;'): break
+    G('g.world.debugFast = false;')
+    pg.wait_for_timeout(1500)
+    shot('31_base_built.png')
+    G('window.__w5 = g.world;')
+    check('built', G('return g.ensureBase(g.world).buildings.filter(b=>b.done).length >= 6;'))
+    G('g.setBaseSub("jobs"); g.openSheet("base");'); pg.wait_for_timeout(300); shot('32_jobs.png')
+    G('g.setBaseSub("research"); g.openSheet("base");'); pg.wait_for_timeout(300); shot('33_research.png')
+    pg.click('#closeSheet')
+    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=2 >> button:text-is("保存")'); pg.wait_for_timeout(300)
+    for _ in range(15):
+        pg.wait_for_timeout(200)
+        if pg.is_visible('#dialog'): pg.click('#dlgBtns >> text=上書き'); break
+    pg.wait_for_timeout(800)
+    pg.click('.slot >> nth=2 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1500)
+    check('v5_roundtrip', G('return g.ensureBase(g.world).buildings.filter(b=>b.done).length >= 6;'))
     b.close()
 srv.shutdown()
 

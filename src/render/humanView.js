@@ -124,6 +124,16 @@ function poseFor(a, time, i) {
     P.arm = [-1.45, -1.55]; P.elbow = [0.2, 0.3]; P.thigh = [-1.2, -1.35]; P.knee = [0.35, 0.2]; P.headPitch = 0.6;
     return P;
   }
+  if (a.inBed && st === 'ok') {
+    // 寝床で眠る
+    P.lie = -Math.PI / 2; P.lift = 0.62; P.hipY = 0; P.arm = [0.1, 0.1]; P.armOut = [0.15, 0.15]; P.elbow = [0.3, 0.3];
+    P.headPitch = -0.2; P.lean = Math.sin(time * 1.2 + i) * 0.015;
+    return P;
+  }
+  if (a.caged && st === 'ok') {
+    P.hipY = 0.16; P.lean = 0.3; P.thigh = [-1.4, -1.4]; P.knee = [1.9, 1.9]; P.arm = [0.4, 0.4]; P.armOut = [-0.15, -0.15]; P.elbow = [1.3, 1.3]; P.headPitch = 0.5;
+    return P;
+  }
   if (st === 'dead' || st === 'ko') {
     P.lie = -Math.PI / 2; P.lift = 0.13; P.hipY = 0;
     P.arm = [-0.15, 0.25]; P.armOut = [0.5, 0.35]; P.elbow = [0.3, 0.6];
@@ -160,6 +170,15 @@ function poseFor(a, time, i) {
     return P;
   }
 
+  if (a.working && a.speed < 0.3) {
+    // 仕事の動き
+    const k = time * (a.working === 'mine' ? 3.2 : 6) + i;
+    if (a.working === 'mine') { const u = (Math.sin(k) + 1) / 2; P.arm = [-1.2 - u * 1.4, -1.3 - u * 1.4]; P.elbow = [0.6, 0.5]; P.lean = 0.15 + u * 0.35; P.knee = [0.3, 0.3]; P.thigh = [-0.2, 0.1]; P.hipY -= 0.05; }
+    else if (a.working === 'farm') { P.lean = 0.9; P.hipY -= 0.12; P.knee = [0.6, 0.6]; P.thigh = [-0.5, -0.4]; P.arm = [-0.6 + Math.sin(k) * 0.3, -0.7 - Math.sin(k) * 0.3]; P.elbow = [0.3, 0.3]; }
+    else if (a.working === 'research') { P.lean = 0.35; P.arm = [-0.9, -0.8 + Math.sin(k * 0.3) * 0.2]; P.elbow = [1.1, 1.0]; P.headPitch = 0.35; }
+    else { P.lean = 0.3; P.arm = [-0.8, -1.4 + Math.sin(k) * 0.6]; P.elbow = [0.9, 0.7 + Math.max(0, Math.sin(k)) * 0.6]; }
+    return P;
+  }
   // ---- 歩く・走る・かばう（下半身の基本） ----
   const run = Math.min(1, Math.max(0, (a.speed - 2.0) / 1.3));
   const stride = 0.55 + run * 0.35;

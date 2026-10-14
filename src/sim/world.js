@@ -9,6 +9,8 @@ import { newFight, stepFight, stepCombatTask, followCarrier, dropCarried, fleeFr
 import { stepSquads, makeEnemy } from './squads.js';
 import { bindWorld, stepFactions, onDeath, onTreatOther } from './factions.js';
 import { ensureTownObstacles, allTowns } from './towns.js';
+import { stepBase, stepWork, freeBed, defaultJobs, refreshBlocking } from './base.js';
+import { resetBlocked } from './pathfind.js';
 import { ROLES, TRADE } from '../data/world.js';
 import { QUALITY_MUL } from '../data/items.js';
 import {
@@ -108,6 +110,7 @@ export function createWorld(seed) {
     let x = sp.x + 14 + i * 1.6, z = sp.z + 10 + (i % 2) * 1.2;
     for (let t = 0; t < 20 && !walkable(x, z); t++) x += 2;
     const p = makePerson(w, 'party', x, z);
+    p.jobs = defaultJobs();
     giveStartingItems(p, i === 0);
     // 仕様判断：序盤は無力。まともな武器は1本だけ、2人目は粗悪な鉄棍、3人目は素手
     if (i === 0) p.equip.weapon = { id: 'rusty_blade', q: 1 };
@@ -136,8 +139,10 @@ export function attachRuntime(w) {
   w.time = w.time || 0;
   w.onDeathFn = (p) => onDeath(w, p);
   w.onTreatFn = (m, pt) => onTreatOther(w, m, pt);
-  ensureTownObstacles();
+  resetBlocked();
+  ensureTownObstacles(true);
   bindWorld(w);
+  refreshBlocking(w);
 }
 
 // ======================= 町の人々 =======================
@@ -229,7 +234,10 @@ export function orderRest(w, ids) {
   for (const id of ids) {
     const p = personById(w, id);
     if (!p || p.state !== 'ok') continue;
-    stopPerson(p); p.task = { kind: 'rest' }; p.resting = true;
+    stopPerson(p);
+    const bed = freeBed(w, p);
+    p.task = bed ? { kind: 'rest', bed: bed.id } : { kind: 'rest' };
+    p.resting = !bed;
   }
 }
 
@@ -270,7 +278,7 @@ export function stepWorld(w, dt) {
       if (p.carriedBy) { followCarrier(w, p); continue; }
       if (p.carrying && p.state !== 'ok') dropCarried(w, p);
       if (p.state !== 'ok') { if (p.fight) p.fight.act = null; p.speed = 0; continue; }
-      const busy = stepCombatTask(w, p, hours);
+      const busy = stepCombatTask(w, p, hours) || stepWork(w, p, h);
       if (!busy) stepTask(w, p, hours);
       const fight = busy || p.task?.kind === 'treat' ? null : stepFight(w, p, h);
       if (fight === 'hold') { p.speed = Math.max(0, p.speed - h * 8); p.moveMode = 'run'; continue; }
@@ -279,6 +287,7 @@ export function stepWorld(w, dt) {
     separate(w.near || w.people, h);
   }
   stepSquads(w, makePerson, gdt);
+  stepBase(w, gdt);
   w.lodTimer = (w.lodTimer || 0) - gdt;
   if (w.lodTimer <= 0) { w.lodTimer = 1; updateLod(w); stepFactions(w); }
   w.fleeTimer = (w.fleeTimer || 0) - gdt;
@@ -302,7 +311,15 @@ function autoAid(w) {
 function stepTask(w, p, hours) {
   const t = p.task;
   if (!t || p.state !== 'ok') { if (p.state !== 'ok') p.task = null; return; }
-  if (t.kind === 'rest') { p.resting = true; return; }
+  if (t.kind === 'rest') {
+    if (t.bed && !p.inBed) {
+      const bed = w.base?.buildings.find((b) => b.id === t.bed);
+      if (!bed) { t.bed = null; p.resting = true; return; }
+      if (Math.hypot(bed.x - p.x, bed.z - p.z) > 1.2) { if (!p.goal) planPath(w, p, bed.x, bed.z, true); return; }
+      p.inBed = bed.id; p.x = bed.x; p.z = bed.z; p.heading = (bed.rot || 0) * Math.PI / 2;
+    }
+    p.resting = true; return;
+  }
   if (t.kind === 'treat') {
     const pt = personById(w, t.target);
     // 自動の応急処置は止血だけ。指示された治療はHPも戻す

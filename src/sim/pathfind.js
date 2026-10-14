@@ -32,10 +32,11 @@ function blockedSetForChunk(cx, cz) {
   let set = chunkBlocked.get(k);
   if (set) return set;
   set = new Set();
-  const { bigRocks, ruins } = chunkSolids(cx, cz);
+  const { bigRocks, ruins, nodes } = chunkSolids(cx, cz);
   const feet = [];
   for (const r of bigRocks) feet.push(r.foot);
   for (const r of ruins) if (r.foot) feet.push(r.foot);
+  for (const r of nodes) feet.push(r.foot);
   for (const f of feet) {
     const rad = f.kind === 'circle' ? f.r : Math.hypot(f.hx, f.hz);
     const x0 = Math.floor((f.x - rad) / CELL), x1 = Math.floor((f.x + rad) / CELL);
@@ -97,6 +98,9 @@ export function setBlocked(x0, z0, x1, z1, on) {
   }
   invalidateArea(x0, z0, x1, z1);
 }
+// 新しい世界を読み込むとき：建物によるふさがりを消す
+export function resetBlocked() { extraBlocked.clear(); cellCache.clear(); }
+
 export function invalidateArea(x0, z0, x1, z1) {
   for (let iz = toCell(z0) - 1; iz <= toCell(z1) + 1; iz++) for (let ix = toCell(x0) - 1; ix <= toCell(x1) + 1; ix++) cellCache.delete(k2(ix, iz));
 }

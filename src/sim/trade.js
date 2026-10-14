@@ -5,6 +5,7 @@ import { addItem, removeItem, gainXp, effSkill } from './body.js';
 import { changeRep, makeWanted } from './factions.js';
 import { townById } from './towns.js';
 import { PARTY } from '../data/config.js';
+import { defaultJobs } from './base.js';
 import { Rng, hash2 } from '../core/rng.js';
 
 const isGear = (id) => !!(ITEMS[id].weapon || ITEMS[id].armor || ITEMS[id].carry);
@@ -122,6 +123,7 @@ export function hire(w, recruit) {
   recruit.role = null; recruit.station = null; recruit.town = null; recruit.title = null;
   recruit.look.accent = PARTY.clothColor; recruit.equipVer = (recruit.equipVer || 0) + 1;
   recruit.path = []; recruit.goal = null;
+  recruit.jobs = defaultJobs();
   if (!recruit.inv.some((s) => ITEMS[s.id].food)) addItem(recruit, 'hardtack', 2);
   w.addLogFn?.(`${recruit.name}が一団に加わった！`);
   return { ok: true, msg: `${recruit.name}が仲間になった` };

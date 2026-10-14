@@ -4,6 +4,7 @@ import { findPath } from './pathfind.js';
 export function clearTask(p) {
   p.task = null;
   p.resting = false;
+  p.inBed = null;
 }
 
 export function planPath(w, p, gx, gz, quiet = false) {

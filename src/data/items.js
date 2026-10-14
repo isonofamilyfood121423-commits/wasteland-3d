@@ -44,6 +44,11 @@ export const ITEMS = {
   trade_iron: { label: '鉄板', cat: 'trade', weight: 3, price: 64 },
   trade_cloth: { label: '布', cat: 'trade', weight: 0.8, price: 26 },
   trade_herb: { label: '薬草', cat: 'trade', weight: 0.3, price: 22 },
+  // 拠点の資源（Phase 5）
+  stone: { label: '石材', cat: 'material', weight: 3, price: 8 },
+  iron_ore: { label: '鉄鉱石', cat: 'material', weight: 3, price: 10 },
+  grain: { label: '穀物', cat: 'material', weight: 0.5, price: 4 },
+  flatbread: { label: '平焼きパン', cat: 'food', weight: 0.3, food: 80, price: 14 },
   // 素材
   scrap: { label: '鉄くず', cat: 'material', weight: 4, price: 6 },
   // 義肢

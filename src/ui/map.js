@@ -83,6 +83,13 @@ export function drawMap(canvas, world, center, span, opts = {}) {
       g.strokeText(label, x, y - rr - 5); g.fillText(label, x, y - rr - 5);
     }
   }
+  // 拠点
+  if (world.base?.founded) {
+    const [x, y] = P(world.base.x, world.base.z);
+    g.fillStyle = '#e9b47a'; g.strokeStyle = '#1a1612'; g.lineWidth = 2;
+    g.fillRect(x - 6, y - 6, 12, 12); g.strokeRect(x - 6, y - 6, 12, 12);
+    if (opts.labels) { g.font = 'bold 14px sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(20,16,13,.85)'; g.fillStyle = '#e9b47a'; g.strokeText('拠点', x, y - 10); g.fillText('拠点', x, y - 10); }
+  }
   // 人物
   for (const p of world.people) {
     if (p.state === 'dead') continue;

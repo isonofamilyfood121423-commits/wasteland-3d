@@ -94,7 +94,7 @@ export const ROAD = { width: 4, pathCost: 0.6 };
 // ---- 店 ----
 // stock: 並べる品の候補（cat または id）と数 / buyCats: 買い取る品目（null＝何でも）
 export const SHOPS = {
-  general: { label: '雑貨屋', stock: [['dried_meat', 8], ['hardtack', 12], ['bandage', 8], ['aidkit', 2], ['repair_kit', 3], ['rope', 4], ['backpack', 1], ['trade_salt', 6], ['trade_cloth', 6], ['trade_herb', 6], ['trade_iron', 4]], buyCats: null },
+  general: { label: '雑貨屋', stock: [['dried_meat', 8], ['hardtack', 12], ['bandage', 8], ['aidkit', 2], ['repair_kit', 3], ['rope', 4], ['backpack', 1], ['trade_salt', 6], ['trade_cloth', 6], ['trade_herb', 6], ['trade_iron', 4], ['stone', 12]], buyCats: null },
   weapons: { label: '武器屋', stock: [['rusty_blade', 2], ['long_blade', 1], ['iron_club', 2], ['sledge', 1], ['spear', 2], ['glaive', 1], ['short_bow', 1]], buyCats: ['weapon', 'material'] },
   armor: { label: '防具屋', stock: [['cloth_hood', 2], ['iron_helm', 1], ['leather_vest', 2], ['iron_plate', 1], ['dust_cloak', 2], ['leather_pants', 2], ['iron_greaves', 1], ['boots', 2], ['backpack', 1], ['limb_crude', 1], ['limb_good', 1]], buyCats: ['armor', 'material', 'limb'] },
   bar: { label: '酒場', stock: [['dried_meat', 6], ['hardtack', 6]], buyCats: ['food'], recruits: [1, 3] },
