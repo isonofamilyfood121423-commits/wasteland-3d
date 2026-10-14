@@ -1,6 +1,6 @@
 // 斜め見下ろしカメラと指操作（1本指ドラッグ=移動 / ピンチ=ズーム / 2本指ひねり=水平回転）
 import * as THREE from 'three';
-import { CAMERA, WORLD } from '../data/config.js';
+import { CAMERA, WORLD, INPUT } from '../data/config.js';
 import { heightAt } from '../sim/terrain.js';
 import { clamp } from '../core/rng.js';
 
@@ -17,7 +17,13 @@ export class CameraRig {
     this.pointers = new Map();
     this.prev = null;
     this.smoothY = 0;
-    this.onTap = null;
+    this.onTap = null;        // (x, y)
+    this.onLongPress = null;  // (x, y)
+    this.selectMode = false;  // 範囲選択モード：1本指ドラッグで矩形を描く
+    this.onSelectDrag = null; // (x0, y0, x1, y1)
+    this.onSelectEnd = null;  // (x0, y0, x1, y1) / null=キャンセル
+    this.lpTimer = 0;
+    this.lpFired = false;
 
     el.addEventListener('pointerdown', (e) => this.down(e));
     el.addEventListener('pointermove', (e) => this.move(e));
@@ -30,6 +36,20 @@ export class CameraRig {
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() });
     this.prev = this.snapshot();
     this.vel.set(0, 0);
+    clearTimeout(this.lpTimer);
+    this.lpFired = false;
+    if (this.pointers.size === 1) {
+      const pt = this.pointers.get(e.pointerId);
+      this.lpTimer = setTimeout(() => {
+        if (this.pointers.size !== 1 || this.selectMode) return;
+        if (Math.hypot(pt.x - pt.sx, pt.y - pt.sy) > INPUT.tapMaxMove) return;
+        this.lpFired = true;
+        this.onLongPress?.(pt.x, pt.y);
+      }, INPUT.longPress);
+    } else {
+      // 2本目の指が触れたら範囲選択は取り消し
+      if (this.selectMode && this.selecting) { this.selecting = false; this.onSelectEnd?.(null); }
+    }
   }
 
   snapshot() {
@@ -46,6 +66,13 @@ export class CameraRig {
     const pt = this.pointers.get(e.pointerId);
     if (!pt) return;
     pt.x = e.clientX; pt.y = e.clientY;
+    if (Math.hypot(pt.x - pt.sx, pt.y - pt.sy) > INPUT.tapMaxMove) clearTimeout(this.lpTimer);
+    if (this.lpFired) return; // 長押しメニュー表示中は動かさない
+    if (this.selectMode && this.pointers.size === 1) {
+      this.selecting = true;
+      this.onSelectDrag?.(pt.sx, pt.sy, pt.x, pt.y);
+      return;
+    }
     const now = this.snapshot();
     const prev = this.prev;
     if (!now || !prev || now.n !== prev.n) { this.prev = now; return; }
@@ -68,9 +95,15 @@ export class CameraRig {
   up(e) {
     const pt = this.pointers.get(e.pointerId);
     this.pointers.delete(e.pointerId);
+    clearTimeout(this.lpTimer);
     if (pt && this.pointers.size === 0) {
-      const moved = Math.hypot(pt.x - pt.sx, pt.y - pt.sy);
-      if (moved < 10 && performance.now() - pt.t < 350 && this.onTap) this.onTap(pt.x, pt.y);
+      if (this.selecting) {
+        this.selecting = false;
+        this.onSelectEnd?.(pt.sx, pt.sy, pt.x, pt.y);
+      } else {
+        const moved = Math.hypot(pt.x - pt.sx, pt.y - pt.sy);
+        if (!this.lpFired && moved < INPUT.tapMaxMove && performance.now() - pt.t < INPUT.tapMaxTime && this.onTap) this.onTap(pt.x, pt.y);
+      }
     }
     this.prev = this.snapshot();
   }

@@ -4,35 +4,30 @@ import { hash2, mulberry32 } from '../core/rng.js';
 import { heightAt, slopeAt, regionAt } from './terrain.js';
 import { WORLD } from '../data/config.js';
 
-const cache = new Map();
+const solidCache = new Map();
+const decorCache = new Map();
 
 export function chunkKey(cx, cz) { return cx + ',' + cz; }
 
-export function chunkProps(cx, cz, density) {
-  const key = chunkKey(cx, cz) + '|' + density.rockPerChunk + '|' + density.grassPerChunk;
-  const hit = cache.get(key);
+// ---- 当たり判定に関わる配置物（画質に依存しない。経路探索・当たり判定が参照） ----
+// 各要素は描画用の姿勢と、地面平面上の占有形状 foot（box: 中心・半幅・回転 / circle: 半径）を持つ
+export function chunkSolids(cx, cz) {
+  const key = chunkKey(cx, cz);
+  const hit = solidCache.get(key);
   if (hit) return hit;
-
   const S = WORLD.chunkSize;
   const ox = cx * S, oz = cz * S;
-  const rnd = mulberry32(Math.floor(hash2(cx, cz, WORLD.seed) * 2 ** 31));
-  const rocks = [], grass = [], ruins = [];
+  const rnd = mulberry32(Math.floor(hash2(cx, cz, WORLD.seed + 11) * 2 ** 31));
+  const bigRocks = [], ruins = [];
 
-  for (let i = 0; i < density.rockPerChunk; i++) {
+  // 大岩（斜面に多い）
+  for (let i = 0; i < 4; i++) {
     const x = ox + rnd() * S, z = oz + rnd() * S;
     const sl = slopeAt(x, z);
-    if (rnd() > 0.35 + sl * 0.8) continue; // 斜面ほど岩が多い
-    const big = rnd() < 0.12;
-    const s = big ? 2.5 + rnd() * 3 : 0.4 + rnd() * 1.2;
-    rocks.push({ x, z, y: heightAt(x, z) - s * 0.25, s, sy: 0.5 + rnd() * 0.7, ry: rnd() * 6.28, tilt: (rnd() - 0.5) * 0.5, tone: rnd() });
-  }
-
-  for (let i = 0; i < density.grassPerChunk; i++) {
-    const x = ox + rnd() * S, z = oz + rnd() * S;
-    const reg = regionAt(x, z);
-    if (slopeAt(x, z) > 0.5) continue;
-    if (rnd() > 0.25 + reg.sand * 0.4) continue;
-    grass.push({ x, z, y: heightAt(x, z), s: 0.35 + rnd() * 0.5, ry: rnd() * 6.28 });
+    const roll = rnd();
+    if (roll > 0.08 + sl * 0.35) continue;
+    const s = 2.2 + rnd() * 3;
+    bigRocks.push({ x, z, y: heightAt(x, z) - s * 0.25, s, sy: 0.5 + rnd() * 0.6, ry: rnd() * 6.28, tilt: (rnd() - 0.5) * 0.4, tone: rnd(), foot: { kind: 'circle', x, z, r: s * 0.85 } });
   }
 
   // 小規模な廃墟（約12%のチャンク）
@@ -41,27 +36,64 @@ export function chunkProps(cx, cz, density) {
     const baseY = heightAt(px, pz);
     const rot = rnd() * 6.28;
     const n = 3 + Math.floor(rnd() * 4);
+    const box = (o) => { o.foot = { kind: 'box', x: o.x, z: o.z, hx: o.sx / 2 + 0.2, hz: o.sz / 2 + 0.2, ry: o.ry }; ruins.push(o); };
     for (let i = 0; i < n; i++) {
       const a = rot + (i / n) * 6.28;
       const r = 5 + rnd() * 4;
       const x = px + Math.cos(a) * r, z = pz + Math.sin(a) * r;
       const h = 3 + rnd() * 8;
-      ruins.push({ x, z, y: heightAt(x, z) - 0.5 + h / 2, sx: 1.2 + rnd() * 0.8, sy: h, sz: 1.2 + rnd() * 0.8, ry: a, rx: (rnd() - 0.5) * 0.25, rz: (rnd() - 0.5) * 0.25, rust: rnd() < 0.4 });
+      box({ x, z, y: heightAt(x, z) - 0.5 + h / 2, sx: 1.2 + rnd() * 0.8, sy: h, sz: 1.2 + rnd() * 0.8, ry: a, rx: (rnd() - 0.5) * 0.25, rz: (rnd() - 0.5) * 0.25, rust: rnd() < 0.4 });
     }
     // 崩れた梁
-    ruins.push({ x: px, z: pz, y: baseY + 0.6, sx: 9 + rnd() * 4, sy: 0.9, sz: 1.3, ry: rot + 0.6, rx: 0.08, rz: 0.12, rust: true });
-    // 瓦礫
+    box({ x: px, z: pz, y: baseY + 0.6, sx: 9 + rnd() * 4, sy: 0.9, sz: 1.3, ry: rot + 0.6, rx: 0.08, rz: 0.12, rust: true });
+    // 瓦礫（小さいものは通り抜けられる）
     for (let i = 0; i < 6; i++) {
       const x = px + (rnd() - 0.5) * 14, z = pz + (rnd() - 0.5) * 14;
       const s = 0.6 + rnd() * 1.4;
-      ruins.push({ x, z, y: heightAt(x, z) + s * 0.2, sx: s, sy: s * 0.6, sz: s * 1.2, ry: rnd() * 6.28, rx: rnd() * 0.6, rz: rnd() * 0.6, rust: rnd() < 0.3 });
+      const o = { x, z, y: heightAt(x, z) + s * 0.2, sx: s, sy: s * 0.6, sz: s * 1.2, ry: rnd() * 6.28, rx: rnd() * 0.6, rz: rnd() * 0.6, rust: rnd() < 0.3 };
+      if (s > 1.3) box(o); else ruins.push(o);
     }
   }
-
-  const out = { rocks, grass, ruins };
-  cache.set(key, out);
-  if (cache.size > 400) cache.delete(cache.keys().next().value);
+  const out = { bigRocks, ruins };
+  solidCache.set(key, out);
+  if (solidCache.size > 600) solidCache.delete(solidCache.keys().next().value);
   return out;
+}
+
+// ---- 見た目だけの小物（画質で密度が変わる。当たり判定なし） ----
+function chunkDecor(cx, cz, density) {
+  const key = chunkKey(cx, cz) + '|' + density.rockPerChunk + '|' + density.grassPerChunk;
+  const hit = decorCache.get(key);
+  if (hit) return hit;
+  const S = WORLD.chunkSize;
+  const ox = cx * S, oz = cz * S;
+  const rnd = mulberry32(Math.floor(hash2(cx, cz, WORLD.seed) * 2 ** 31));
+  const rocks = [], grass = [];
+  for (let i = 0; i < density.rockPerChunk; i++) {
+    const x = ox + rnd() * S, z = oz + rnd() * S;
+    const sl = slopeAt(x, z);
+    if (rnd() > 0.35 + sl * 0.8) continue;
+    const s = 0.3 + rnd() * 0.9;
+    rocks.push({ x, z, y: heightAt(x, z) - s * 0.25, s, sy: 0.5 + rnd() * 0.7, ry: rnd() * 6.28, tilt: (rnd() - 0.5) * 0.5, tone: rnd() });
+  }
+  for (let i = 0; i < density.grassPerChunk; i++) {
+    const x = ox + rnd() * S, z = oz + rnd() * S;
+    const reg = regionAt(x, z);
+    if (slopeAt(x, z) > 0.5) continue;
+    if (rnd() > 0.25 + reg.sand * 0.4) continue;
+    grass.push({ x, z, y: heightAt(x, z), s: 0.35 + rnd() * 0.5, ry: rnd() * 6.28 });
+  }
+  const out = { rocks, grass };
+  decorCache.set(key, out);
+  if (decorCache.size > 400) decorCache.delete(decorCache.keys().next().value);
+  return out;
+}
+
+// 描画用：当たり判定のある物＋小物をまとめて返す
+export function chunkProps(cx, cz, density) {
+  const sol = chunkSolids(cx, cz);
+  const dec = chunkDecor(cx, cz, density);
+  return { rocks: sol.bigRocks.concat(dec.rocks), grass: dec.grass, ruins: sol.ruins };
 }
 
 // 地平線のシルエットを作る巨大遺構（常時表示）

@@ -78,6 +78,8 @@ export class HumanView {
     this.visibleRadius = 150;
   }
 
+  reset() { this.colored = false; }
+
   setShadows(on) { for (const m of Object.values(this.meshes)) m.castShadow = on; }
 
   applyColors(agents) {
@@ -85,7 +87,7 @@ export class HumanView {
     agents.forEach((a, i) => {
       const L = a.look;
       const skin = c.setHex(PALETTE.skin[L.skin]).clone();
-      const cloth = new THREE.Color(PALETTE.cloth[L.cloth]);
+      const cloth = new THREE.Color(L.accent ?? PALETTE.cloth[L.cloth]);
       const pants = new THREE.Color(PALETTE.cloth[L.pants]).multiplyScalar(0.8);
       const M = this.meshes;
       M.head.setColorAt(i, skin);
@@ -120,6 +122,8 @@ export class HumanView {
       }
       const L = a.look;
       const amt = Math.min(1, a.speed / 1.4);
+      const run = Math.min(1, Math.max(0, (a.speed - 2.0) / 1.3)); // 走り：歩幅・前傾・腕の曲げを強める
+      const stride = 0.55 + run * 0.35;
       const p = a.phase;
       const sp = Math.sin(p), cp = Math.cos(p);
       const breathe = Math.sin(time * 1.7 + i) * 0.012 * (1 - amt);
@@ -129,11 +133,11 @@ export class HumanView {
       root.compose(_v.set(a.x, heightAt(a.x, a.z), a.z), _q, _s.set(L.bulk, L.height, L.bulk));
 
       const legLen = B.thigh + B.shin + 0.05;
-      const hipY = legLen - Math.abs(cp) * 0.035 * amt;
+      const hipY = legLen - Math.abs(cp) * (0.035 + run * 0.05) * amt - run * 0.04;
       child(root, 0, hipY, 0, 0, sp * 0.12 * amt, 0, pelvis);
       M.pelvis.setMatrixAt(i, pelvis);
 
-      child(pelvis, 0, B.pelvisH / 2 + B.torsoH / 2, 0, 0.07 * amt + breathe, -sp * 0.22 * amt, 0, torso);
+      child(pelvis, 0, B.pelvisH / 2 + B.torsoH / 2, 0, 0.07 * amt + run * 0.2 + breathe, -sp * 0.22 * amt, 0, torso);
       M.torso.setMatrixAt(i, torso);
 
       child(torso, 0, B.torsoH / 2 + B.neck + B.headR, 0.01, -0.05 * amt, sp * 0.1 * amt, 0, tmp);
@@ -146,18 +150,18 @@ export class HumanView {
       // 腕：脚と逆位相で振る（+z が前方。前へ振るには X 回転を負に）
       for (let k = 0; k < 2; k++) {
         const side = k === 0 ? 1 : -1;
-        const swing = (k === 0 ? sp : -sp) * 0.6 * amt;
+        const swing = (k === 0 ? sp : -sp) * (0.6 + run * 0.25) * amt;
         child(torso, side * B.shoulderX, B.torsoH / 2 - 0.05, 0, swing + breathe * 2, 0, side * 0.07, tmp);
         M.upperArm.setMatrixAt(i * 2 + k, tmp);
-        child(tmp, 0, -B.upperArm, 0, -(0.25 + Math.max(0, -swing) * 0.6 + 0.15 * amt), 0, 0, tmp2);
+        child(tmp, 0, -B.upperArm, 0, -(0.25 + Math.max(0, -swing) * 0.6 + 0.15 * amt + run * 0.9), 0, 0, tmp2);
         M.foreArm.setMatrixAt(i * 2 + k, tmp2);
       }
       // 脚：太ももを前後に振り、膝は振り出し時に曲げる
       for (let k = 0; k < 2; k++) {
         const side = k === 0 ? 1 : -1;
         const ph = k === 0 ? p + Math.PI : p;
-        const thighA = -Math.sin(ph) * 0.55 * amt;
-        const knee = (Math.max(0, Math.cos(ph)) * 0.95 + 0.04) * amt + 0.02;
+        const thighA = -Math.sin(ph) * stride * amt;
+        const knee = (Math.max(0, Math.cos(ph)) * (0.95 + run * 0.6) + 0.04) * amt + 0.02;
         child(pelvis, side * B.hipX, -B.pelvisH / 2 + 0.02, 0, thighA, 0, 0, tmp);
         M.thigh.setMatrixAt(i * 2 + k, tmp);
         child(tmp, 0, -B.thigh, 0, knee, 0, 0, tmp2);

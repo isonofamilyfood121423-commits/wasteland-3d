@@ -12,8 +12,8 @@
 <title>__TITLE__</title>
 <style>
 :root{
-  --ink:#efe6d6; --ink2:#b9ab95; --panel:rgba(28,23,19,.82); --panel2:rgba(46,38,31,.9);
-  --line:rgba(239,230,214,.14); --accent:#d08a4e; --accent2:#e9b47a; --bad:#c9573f;
+  --ink:#efe6d6; --ink2:#b9ab95; --panel:rgba(28,23,19,.82); --panel2:rgba(46,38,31,.94);
+  --line:rgba(239,230,214,.14); --accent:#d08a4e; --accent2:#e9b47a; --bad:#c9573f; --good:#6fd27a;
   --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,0px);
   --sl:env(safe-area-inset-left,0px); --sr:env(safe-area-inset-right,0px);
 }
@@ -29,6 +29,10 @@ button{font:inherit;color:inherit}
 .btn.primary{background:linear-gradient(180deg,#c47c41,#9c5a2c);border-color:#e0a46a55;color:#fff6ea}
 .btn.ghost{background:transparent}
 .btn.on{background:#6d4a2e;border-color:var(--accent)}
+.btn.danger{border-color:#c9573f88;color:#ffb39f}
+.btn:disabled{opacity:.42}
+.hide{display:none !important}
+.muted{color:var(--ink2)}
 
 /* タイトル */
 #title{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;justify-content:flex-end;
@@ -36,54 +40,97 @@ button{font:inherit;color:inherit}
   background:linear-gradient(180deg,rgba(20,16,13,.0) 0%,rgba(20,16,13,.35) 45%,rgba(20,16,13,.92) 100%)}
 #title .logo{font-size:44px;font-weight:800;letter-spacing:.12em;line-height:1.1;text-shadow:0 2px 24px rgba(0,0,0,.6)}
 #title .sub{font-size:14px;letter-spacing:.5em;color:var(--accent2);margin:6px 0 4px}
-#title .tag{font-size:14px;color:var(--ink2);margin-bottom:28px;line-height:1.7}
-#title .col{display:flex;flex-direction:column;gap:12px}
-#title .btn{min-height:56px;font-size:17px}
+#title .tag{font-size:14px;color:var(--ink2);margin-bottom:24px;line-height:1.7}
+#title .col{display:flex;flex-direction:column;gap:10px}
+#title .btn{min-height:54px;font-size:17px}
+#title .cont small{display:block;font-size:14px;font-weight:400;opacity:.85}
 #title .build{position:absolute;right:calc(14px + var(--sr));top:calc(12px + var(--st));font-size:14px;color:var(--ink2);
   text-align:right;line-height:1.5;background:rgba(0,0,0,.25);padding:6px 10px;border-radius:8px}
-#title.hide{display:none}
 #loading{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:#1a1612;font-size:15px;color:var(--ink2)}
-#loading.hide{display:none}
 
 /* HUD */
 #hud{position:fixed;inset:0;z-index:10;pointer-events:none}
-#hud.hide{display:none}
 #hud .top{position:absolute;left:0;right:0;top:0;padding:calc(8px + var(--st)) calc(10px + var(--sr)) 8px calc(10px + var(--sl));
   display:flex;align-items:center;gap:8px;background:linear-gradient(180deg,rgba(18,14,11,.75),rgba(18,14,11,0))}
-#clock{pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 12px;min-height:48px;
+#clock{pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:5px 11px;min-height:48px;
   display:flex;flex-direction:column;justify-content:center;font-size:14px;line-height:1.25}
-#clock b{font-size:18px;font-variant-numeric:tabular-nums}
-#speeds{margin-left:auto;display:flex;gap:4px;pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:3px}
-#speeds .btn{min-width:44px;min-height:44px;padding:0 6px;border:none;background:transparent;font-size:14px}
+#clock b{font-size:17px;font-variant-numeric:tabular-nums}
+#clock .money{color:var(--accent2);font-size:14px;font-weight:600;margin-left:6px;white-space:nowrap}
+#clock b{white-space:nowrap}
+#speeds{margin-left:auto;display:flex;gap:2px;pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:3px}
+#speeds .btn{min-width:42px;min-height:44px;padding:0 5px;border:none;background:transparent;font-size:14px}
 #speeds .btn.on{background:#6d4a2e}
-#hud .bottom{position:absolute;left:0;right:0;bottom:0;padding:10px calc(10px + var(--sr)) calc(10px + var(--sb)) calc(10px + var(--sl));
-  display:flex;gap:8px;justify-content:space-between;align-items:flex-end;background:linear-gradient(0deg,rgba(18,14,11,.75),rgba(18,14,11,0))}
-#hud .bottom .grp{display:flex;gap:8px;pointer-events:auto}
-#hud .bottom .btn{min-height:52px;font-size:14px;padding:0 12px}
-#debug{position:absolute;left:calc(10px + var(--sl));top:calc(70px + var(--st));background:rgba(0,0,0,.55);padding:6px 9px;border-radius:8px;
-  font:14px/1.45 ui-monospace,Menlo,Consolas,monospace;color:#d8f0c0;white-space:pre}
-#debug.hide{display:none}
-#phaseTag{position:absolute;right:calc(10px + var(--sr));top:calc(70px + var(--st));font-size:14px;color:var(--ink2);background:rgba(0,0,0,.35);padding:4px 8px;border-radius:8px}
+#hud.paused #speeds [data-s="0"]{background:#8a3a2a}
+#pauseBadge{position:absolute;left:50%;top:calc(66px + var(--st));transform:translateX(-50%);background:rgba(138,58,42,.85);padding:4px 14px;border-radius:20px;font-size:14px;font-weight:700;letter-spacing:.2em}
+#debug{position:absolute;left:calc(10px + var(--sl));top:calc(66px + var(--st));background:rgba(0,0,0,.5);padding:5px 8px;border-radius:8px;
+  font:14px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#d8f0c0;white-space:pre}
+#hud .bottom{position:absolute;left:0;right:0;bottom:0;padding:8px calc(8px + var(--sr)) calc(8px + var(--sb)) calc(8px + var(--sl));
+  background:linear-gradient(0deg,rgba(18,14,11,.85) 60%,rgba(18,14,11,0))}
+#party{display:flex;gap:8px;overflow-x:auto;pointer-events:auto;padding:4px 2px 8px;touch-action:pan-x;scrollbar-width:none}
+#party::-webkit-scrollbar{display:none}
+.face{flex:0 0 auto;width:62px;display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:4px 2px 3px}
+.face img{width:44px;height:44px;border-radius:8px;display:block}
+.face span{font-size:14px;line-height:1.1;white-space:nowrap;overflow:hidden;max-width:58px}
+.face.sel{border-color:var(--good);background:rgba(60,90,58,.85)}
+.face.moving span::after{content:"›";color:var(--good);margin-left:2px}
+#actions{display:flex;gap:6px;pointer-events:auto}
+#actions .btn{flex:1;min-height:52px;padding:0 6px;font-size:14px}
+#actions .btn.menu{flex:0 0 64px}
+
+/* 範囲選択の矩形・案内 */
+#selRect{position:fixed;z-index:12;border:2px solid var(--good);background:rgba(111,210,122,.12);pointer-events:none;border-radius:4px}
+#modeTip{position:fixed;left:50%;top:calc(100px + var(--st));transform:translateX(-50%);z-index:12;background:rgba(40,70,44,.9);border:1px solid var(--good);padding:8px 14px;border-radius:12px;font-size:14px;pointer-events:none;white-space:nowrap}
+
+/* 長押しメニュー・候補選択 */
+.pop{position:fixed;left:calc(10px + var(--sl));right:calc(10px + var(--sr));bottom:calc(10px + var(--sb));z-index:22;background:var(--panel2);
+  border:1px solid var(--line);border-radius:16px;padding:12px;box-shadow:0 -8px 30px rgba(0,0,0,.4)}
+.pop .head{font-size:15px;font-weight:700;margin:2px 4px 10px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.pop .head small{font-weight:400;color:var(--ink2);font-size:14px}
+.pop .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pop .grid .btn{min-height:52px;font-size:15px}
+.pop .grid .btn small{display:block;font-size:14px;font-weight:400;color:var(--ink2)}
+.pop .list{display:flex;flex-direction:column;gap:8px}
+.pop .list .btn{text-align:left}
+.pop .cancel{width:100%;margin-top:8px}
 
 /* シート */
-#sheet{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--panel2);border-top:1px solid var(--line);
-  border-radius:18px 18px 0 0;padding:10px calc(16px + var(--sr)) calc(16px + var(--sb)) calc(16px + var(--sl));
-  transform:translateY(105%);transition:transform .22s ease;max-height:78dvh;overflow:auto;touch-action:pan-y}
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:36;background:var(--panel2);border-top:1px solid var(--line);
+  border-radius:18px 18px 0 0;padding:10px calc(14px + var(--sr)) calc(14px + var(--sb)) calc(14px + var(--sl));
+  transform:translateY(105%);transition:transform .22s ease;max-height:82dvh;display:flex;flex-direction:column}
 #sheet.open{transform:none}
-#sheet .grab{width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px}
+#sheet .grab{width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 10px;flex:0 0 auto}
+#tabs{display:flex;gap:6px;flex:0 0 auto}
+#tabs .btn{flex:1;padding:0 4px}
+#sheetBody{overflow:auto;touch-action:pan-y;flex:1 1 auto;padding-top:4px;min-height:200px}
 #sheet h3{margin:14px 0 8px;font-size:15px;color:var(--accent2)}
 #sheet .row{display:flex;gap:8px;flex-wrap:wrap}
 #sheet .row .btn{flex:1}
 #sheet .note{font-size:14px;color:var(--ink2);line-height:1.6;margin-top:8px}
-#scrim{position:fixed;inset:0;z-index:15;background:rgba(0,0,0,.35);display:none}
-#scrim.show{display:block}
+.slot{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:8px;background:rgba(0,0,0,.15)}
+.slot .info{flex:1;min-width:0;font-size:14px;line-height:1.45}
+.slot .info b{font-size:15px}
+.slot .btn{min-width:64px;padding:0 10px}
+.logline{font-size:14px;line-height:1.5;padding:6px 2px;border-bottom:1px solid var(--line)}
+.logline time{color:var(--ink2);margin-right:8px;font-variant-numeric:tabular-nums}
+.member{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px;display:flex;gap:10px;align-items:center}
+.member img{width:52px;height:52px;border-radius:10px}
+.member .info{flex:1;font-size:14px;line-height:1.5}
+.member .info b{font-size:16px}
+#scrim{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.35)}
+
+/* ダイアログ */
+#dialog{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);padding:16px}
+#dialog .box{width:100%;max-width:420px;background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:16px}
+#dialog .msg{font-size:15px;line-height:1.7;margin-bottom:12px;white-space:pre-wrap}
+#dialog textarea{width:100%;height:150px;background:#120f0c;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px;font:14px/1.4 ui-monospace,monospace;
+  -webkit-user-select:text;user-select:text;touch-action:pan-y;margin-bottom:12px;resize:none}
+#dialog .row{display:flex;gap:8px}
+#dialog .row .btn{flex:1}
 
 /* 通知 */
-#toast{position:fixed;left:50%;bottom:calc(90px + var(--sb));transform:translateX(-50%);z-index:25;background:var(--panel2);
-  border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:86vw;text-align:center}
+#toast{position:fixed;left:50%;bottom:calc(190px + var(--sb));transform:translateX(-50%);z-index:55;background:var(--panel2);
+  border:1px solid var(--line);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:88vw;text-align:center}
 #toast.show{opacity:1}
-
-/* 縦向き案内 */
 #rotate{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:#1a1612;font-size:17px}
 #rotate .ico{font-size:44px}
 @media (orientation:landscape) and (max-height:540px){#rotate{display:flex}}
@@ -105,16 +152,18 @@ button{font:inherit;color:inherit}
   <div class="build">ビルド __BUILD__<br>__BUILD_TIME__</div>
   <div class="logo">__TITLE__</div>
   <div class="sub">__SUBTITLE__</div>
-  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 0：描画基盤の検証版</div>
+  <div class="tag">主人公はいない。目標は自分で決める。<br>Phase 1：操作と移動の検証版</div>
   <div class="col">
-    <button class="btn primary" id="startBtn">はじめる</button>
+    <button class="btn primary cont hide" id="contBtn">つづきから<small id="contInfo"></small></button>
+    <button class="btn" id="newBtn">はじめから</button>
+    <button class="btn" id="loadBtn">ロード／読み込み</button>
     <button class="btn" id="manualBtn">操作マニュアル</button>
   </div>
 </div>
 
 <div id="hud" class="hide">
   <div class="top">
-    <div id="clock"><span id="dayLabel">1日目</span><b id="timeLabel">--:--</b></div>
+    <div id="clock"><span id="dayLabel">1日目</span><b><span id="timeLabel">--:--</span> <span class="money" id="moneyLabel">0</span></b></div>
     <div id="speeds">
       <button class="btn" data-s="0">停止</button>
       <button class="btn" data-s="0.5">0.5</button>
@@ -123,46 +172,39 @@ button{font:inherit;color:inherit}
       <button class="btn" data-s="3">3x</button>
     </div>
   </div>
-  <div id="debug"></div>
-  <div id="phaseTag">検証版</div>
+  <div id="pauseBadge" class="hide">一時停止中</div>
+  <div id="debug" class="hide"></div>
   <div class="bottom">
-    <div class="grp">
+    <div id="party"></div>
+    <div id="actions">
+      <button class="btn" id="boxBtn">範囲選択</button>
+      <button class="btn" id="allBtn">全員</button>
       <button class="btn" id="followBtn">追従</button>
-      <button class="btn" id="ffBtn">早送り×60</button>
-    </div>
-    <div class="grp">
-      <button class="btn" id="menuBtn">設定</button>
+      <button class="btn" id="stopBtn">その場で待機</button>
+      <button class="btn menu" id="menuBtn">メニュー</button>
     </div>
   </div>
 </div>
 
-<div id="scrim"></div>
+<div id="selRect" class="hide"></div>
+<div id="modeTip" class="hide">指でなぞって囲んだ仲間を選択</div>
+
+<div id="pop" class="pop hide"></div>
+
+<div id="scrim" class="hide"></div>
 <div id="sheet">
   <div class="grab"></div>
-  <h3>画質</h3>
-  <div class="row" id="qRow">
-    <button class="btn" data-q="auto">自動</button>
-    <button class="btn" data-q="low">低</button>
-    <button class="btn" data-q="mid">中</button>
-    <button class="btn" data-q="high">高</button>
+  <div id="tabs">
+    <button class="btn" data-tab="party">一団</button>
+    <button class="btn" data-tab="save">セーブ</button>
+    <button class="btn" data-tab="log">ログ</button>
+    <button class="btn" data-tab="settings">設定</button>
   </div>
-  <div class="note" id="qNote"></div>
-  <h3>表示</h3>
-  <div class="row">
-    <button class="btn" id="dynBtn">解像度の自動調整</button>
-    <button class="btn" id="dbgBtn">デバッグ表示</button>
-  </div>
-  <h3>その他</h3>
-  <div class="row">
-    <button class="btn" id="vibBtn">振動</button>
-    <button class="btn" id="manualBtn2">操作マニュアル</button>
-  </div>
-  <div class="row" style="margin-top:8px">
-    <button class="btn" id="fsBtn">全画面</button>
-    <button class="btn" id="closeSheet">閉じる</button>
-  </div>
-  <div class="note">ビルド __BUILD__（__BUILD_TIME__）</div>
+  <div id="sheetBody"></div>
+  <button class="btn" id="closeSheet" style="margin-top:10px;flex:0 0 auto">閉じる</button>
 </div>
+
+<div id="dialog" class="hide"><div class="box"><div class="msg" id="dlgMsg"></div><textarea id="dlgText" class="hide"></textarea><div class="row" id="dlgBtns"></div></div></div>
 
 <div id="toast"></div>
 <div id="rotate"><div class="ico">📱</div>縦にしてください</div>

@@ -14,6 +14,14 @@ export const WORLD = {
   seaLevel: -100,         // Phase 0 では水域なし
 };
 
+// ---- 経路探索 ----
+export const PATH = {
+  cell: 2,            // グリッド1マス（m）
+  maxSlope: 0.95,     // これより急な斜面（約44°）は通行不可＝崖
+  slopeCost: 2.5,     // 傾斜1あたりの追加コスト
+  maxNodes: 12000,    // 1回の探索で調べる最大マス数（遠い目的地は到達できた所から再探索）
+};
+
 // ---- 時間 ----
 // 仕様判断：ゲーム内1日＝現実約20分（1x時）。CLAUDE.md「時間の扱い」
 export const TIME = {
@@ -111,4 +119,36 @@ export const CROWD = {
   wanderRadius: 45,
   walkSpeed: [1.1, 1.9],
   idleTime: [1, 6],
+};
+
+// ---- プレイヤーの一団 ----
+// 仕様判断：開始時は3人。所持金の単位はオリジナル通貨「錆貨（さびか）」
+export const PARTY = {
+  size: 3,
+  runSpeed: 3.4,
+  startMoney: 300,
+  currency: '錆貨',
+  formationGap: 1.6,   // 複数人へ同じ地点を指示したときの間隔（m）
+  clothColor: 0x4f6f6a, // プレイヤー側の差し色
+};
+
+// オリジナルの人名（音の組み合わせ）
+export const NAMES = {
+  first: ['サク', 'ヨミ', 'ガラン', 'ルカ', 'テツ', 'ナギ', 'ハル', 'キサ', 'ドウ', 'マオ', 'リン', 'ソウ', 'イオ', 'カヤ', 'ジン', 'ノエ', 'ベル', 'トキ'],
+  last: ['砂原', '灰谷', '赤錆', '石橋', '風見', '塩田', '鉄野', '乾', '影山', '古坂'],
+};
+
+// ---- 操作 ----
+export const INPUT = {
+  tapMaxMove: 10,      // px：これ以上動いたらドラッグ扱い
+  tapMaxTime: 450,     // ms（長押し判定より短く離せばタップ）
+  longPress: 450,      // ms
+  pickRadius: 34,      // px：人物のタップ判定（見た目より大きめ）
+};
+
+// ---- セーブ ----
+export const SAVE = {
+  version: 1,
+  slots: 3,
+  autosaveInterval: 60, // 秒（現実時間）
 };
