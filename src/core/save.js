@@ -7,7 +7,9 @@ import { SAVE } from '../data/config.js';
 import { Rng } from './rng.js';
 import { findSpawn } from '../sim/worldgen.js';
 import { initHealth } from '../sim/body.js';
-import { attachRuntime } from '../sim/world.js';
+import { attachRuntime, dressFromLook } from '../sim/world.js';
+import { emptyEquip } from '../sim/equip.js';
+import { newFight } from '../sim/combat.js';
 
 const DB_NAME = 'w3d', STORE = 'saves', META_KEY = 'w3d.slots', AUTO_BACKUP = 'w3d.autosave';
 export const SLOT_IDS = ['auto', ...Array.from({ length: SAVE.slots }, (_, i) => 's' + (i + 1))];
@@ -15,7 +17,8 @@ export const slotLabel = (id) => (id === 'auto' ? '自動セーブ' : `スロッ
 
 // ---- 状態 ⇄ セーブデータ ----
 const PERSON_FIELDS = ['id', 'kind', 'name', 'surname', 'x', 'z', 'heading', 'maxSpeed', 'homeX', 'homeZ', 'look',
-  'race', 'body', 'blood', 'hunger', 'state', 'koTimer', 'skills', 'inv', 'resting'];
+  'race', 'body', 'blood', 'hunger', 'state', 'koTimer', 'skills', 'inv', 'resting',
+  'faction', 'equip', 'equipVer', 'money', 'bound', 'angryAt', 'enemyType', 'title', 'bounty', 'squad', 'carrying', 'carriedBy'];
 
 export function serialize(world, cam, build) {
   return {
@@ -29,6 +32,10 @@ export function serialize(world, cam, build) {
     day: world.day,
     timeScale: world.timeScale,
     money: world.money,
+    time: world.time,
+    banditsOn: world.banditsOn,
+    spawnTimer: world.spawnTimer,
+    squads: world.squads.map((q) => ({ id: q.id, members: q.members, mode: q.mode, cooldownUntil: q.cooldownUntil })),
     camera: cam,
     people: world.people.map((p) => {
       const o = {};
@@ -53,6 +60,15 @@ export function migrate(data) {
       return q;
     }) };
   }
+  // v2 → v3（Phase 3）：陣営・装備・所持金・戦闘の状態を追加
+  if (d.v === 2) {
+    d = { ...d, v: 3, time: 0, banditsOn: true, squads: [], people: d.people.map((p, i) => {
+      const q = { ...p, faction: p.kind === 'party' ? 'player' : 'drifter', equip: emptyEquip(), money: 0 };
+      dressFromLook(q);
+      if (p.kind === 'party' && d.people.findIndex((x) => x.kind === 'party') === i) q.equip.weapon = { id: 'rusty_blade', q: 1 };
+      return q;
+    }) };
+  }
   // 版を上げたらここに1段ずつ追加する
   if (d.v > SAVE.version) throw new Error('新しい版で作られたセーブデータです。ゲームを最新版に更新してください');
   return d;
@@ -70,10 +86,14 @@ export function deserialize(raw) {
     timeScale: d.timeScale ?? 1,
     debugFast: false,
     money: d.money ?? 0,
+    time: d.time || 0,
+    banditsOn: d.banditsOn !== false,
+    spawnTimer: d.spawnTimer || 0,
+    squads: (d.squads || []).map((q) => ({ ...q, t: 0 })),
     people: d.people.map((p) => ({
       ...p,
       speed: 0, phase: Math.random() * 6.28, path: [], goal: null, pendingGoal: p.goal || null,
-      stuck: 0, replans: 0, idle: Math.random() * 2, task: null,
+      stuck: 0, replans: 0, idle: Math.random() * 2, task: null, fight: newFight(),
     })),
     log: d.log || [],
   };

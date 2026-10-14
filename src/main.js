@@ -6,9 +6,14 @@ import { loadSettings, saveSettings } from './core/settings.js';
 import { serialize, deserialize, saveSlot, loadSlot, deleteSlot, listSlots, exportText, importText, SLOT_IDS, slotLabel } from './core/save.js';
 import { QUALITY, DPR_HARD_CAP, CAMERA, WORLD, CROWD, PARTY, SAVE } from './data/config.js';
 import { createWorld, stepWorld, orderMove, orderRest, orderTreat, stopPerson, partyOf, personById, addLog, attachRuntime, attachProsthetic, debug } from './sim/world.js';
-import { healthPct, totalBleed, eat, partsNeedingAid, addItem } from './sim/body.js';
+import { healthPct, totalBleed, eat, partsNeedingAid, addItem, removeItem } from './sim/body.js';
 import { RACES, ITEMS, PART } from './data/body.js';
-import { renderBody, renderSkills, renderInventory, stateText } from './ui/personSheet.js';
+import { renderBody, renderSkills, renderInventory, renderEquip, stateText } from './ui/personSheet.js';
+import { equipItem, unequip } from './sim/equip.js';
+import { orderAttack, orderRetreat, orderCarry, orderBind, orderRelease, dropCarried, hostile } from './sim/combat.js';
+import { itemLabel } from './data/items.js';
+import { FACTIONS } from './data/combat.js';
+import { Effects } from './render/effects.js';
 import { Atmosphere } from './render/atmosphere.js';
 import { TerrainView } from './render/terrainView.js';
 import { HumanView } from './render/humanView.js';
@@ -47,6 +52,7 @@ const atmosphere = new Atmosphere(scene);
 const terrain = new TerrainView(scene);
 const humans = new HumanView(scene, CROWD.count + 16);
 const markers = new Markers(scene);
+const effects = new Effects(scene);
 const rig = new CameraRig(camera, canvas);
 
 let world = createWorld(WORLD.seed); // タイトル背景にも使う
@@ -104,6 +110,9 @@ function startWorld(w, cam) {
   world = w;
   attachRuntime(world);
   world.onLog = (text) => toast(text);
+  let lastBuzz = 0;
+  world.onPartyHit = () => { const t = performance.now(); if (t - lastBuzz > 400) { lastBuzz = t; vibrate(25); } };
+  world.onAlarm = () => vibrate([60, 40, 60]);
   gameOverShown = false;
   humans.reset();
   selected.clear(); inspected = null; rig.follow = null;
@@ -227,7 +236,15 @@ $('stopBtn').onclick = () => {
   if (!s.length) { toast('仲間を選択してください'); return; }
   s.forEach(stopPerson); toast('その場で待機します');
 };
+let combatMode = false;
 $('restBtn').onclick = () => {
+  if (combatMode) {
+    const s = selectedParty().filter((p) => p.state === 'ok');
+    if (!s.length) { toast('退却する仲間を選択してください'); return; }
+    orderRetreat(world, s);
+    toast('退却します。倒れた仲間は長押し→「担ぐ」で連れて逃げられます');
+    return;
+  }
   const s = selectedParty().filter((p) => p.state === 'ok');
   if (!s.length) { toast('休ませる仲間を選択してください'); return; }
   orderRest(world, s.map((p) => p.id));
@@ -331,8 +348,16 @@ rig.onTap = async (x, y) => {
   if (hits.length) {
     const p = hits.length > 1 ? await choose(hits, 'だれを選びますか') : hits[0];
     if (!p) return;
-    if (p.kind === 'party') { selectOnly(p.id); vibrate(8); }
-    else { inspected = p; toast(`${p.name}（流れ者）　長押しで行動を選べます`); }
+    if (p.kind === 'party') { selectOnly(p.id); vibrate(8); return; }
+    const fighters = selectedParty().filter((m) => m.state === 'ok');
+    // 敵をタップ：選択中の仲間で攻撃
+    if (fighters.length && p.state === 'ok' && !p.bound && hostile(fighters[0], p)) {
+      orderAttack(world, fighters, p); inspected = p; vibrate(12);
+      toast(`${p.name}を攻撃します`);
+      return;
+    }
+    inspected = p;
+    toast(`${p.name}（${p.title || FACTIONS[p.faction]?.label || '流れ者'}）　長押しで行動を選べます`);
     return;
   }
   const g = screenToGround(camera, x, y);
@@ -371,37 +396,53 @@ function debugActions(p) {
     { label: '脚を失わせる', run: () => debug.loseLeg(world, p) },
     { label: '空腹にする', run: () => { debug.starve(world, p); toast(`${p.name}を空腹にしました`); } },
     { label: '義肢を持たせる', run: () => debug.giveLimb(world, p) },
+    { label: '盗賊を呼ぶ', run: () => debug.bandits(world, p) },
     { label: '包帯を5つ渡す', run: () => { const id = RACES[p.race].aid === 'repair' ? 'repair_kit' : 'bandage'; addItem(p, id, 5); toast(`${ITEMS[id].label}を5つ渡しました`); } },
   ]);
 }
 
 function personActions(p) {
   const dead = p.state === 'dead';
+  const down = p.state !== 'ok' || p.bound;
+  const sel = selectedParty().filter((m) => m.state === 'ok' && m !== p);
+  const actor = sel[0] || null;
+  const need = (fn) => () => { if (!actor) { toast('先に行動する仲間を選択してください'); return; } fn(actor); };
   if (p.kind === 'party') {
-    const acts = [
-      { label: '選択する', run: () => selectOnly(p.id) },
-      { label: '体の状態', run: () => openPerson(p.id, 'body') },
-      { label: '治療する', run: () => treatWith(p) },
-      { label: '持ち物', run: () => openPerson(p.id, 'inv') },
-      { label: '休む', run: () => { orderRest(world, [p.id]); } },
-      { label: 'その場で待機', run: () => stopPerson(p) },
-      { label: 'カメラで追う', run: () => followPerson(p) },
-      { label: '検証メニュー', run: () => debugActions(p) },
-    ];
-    showActions(p.name, `仲間・${stateText(p)}`, dead ? acts.filter((x) => ['体の状態', '持ち物', 'カメラで追う'].includes(x.label)) : acts);
-  } else {
-    inspected = p;
-    showActions(p.name, `流れ者・${RACES[p.race].label}・${stateText(p)}`, [
-      { label: '話す', phase: 'Phase 4' },
-      { label: '攻撃する', phase: 'Phase 3' },
-      { label: '担ぐ', phase: 'Phase 3' },
-      { label: '治療する', run: () => treatWith(p) },
-      { label: '体の状態', run: () => openPerson(p.id, 'body') },
-      { label: 'カメラで追う', run: () => followPerson(p) },
-      { label: 'そばへ移動', run: () => moveSelectedTo(p.x + 1.2, p.z + 1.2) },
-      { label: '検証メニュー', run: () => debugActions(p) },
-    ]);
+    const acts = [];
+    if (p.state === 'ok') {
+      acts.push({ label: '選択する', run: () => selectOnly(p.id) });
+      if (p.carrying) acts.push({ label: '降ろす', run: () => dropCarried(world, p) });
+    }
+    if (down && !dead) acts.push({ label: '担ぐ', run: need((a) => orderCarry(world, a, p)) });
+    acts.push({ label: '体の状態', run: () => openPerson(p.id, 'body') });
+    if (!dead) acts.push({ label: '治療する', run: () => treatWith(p) });
+    acts.push({ label: '装備・持ち物', run: () => openPerson(p.id, 'equip') });
+    if (p.state === 'ok') {
+      acts.push({ label: '休む', run: () => orderRest(world, [p.id]) });
+      acts.push({ label: 'その場で待機', run: () => stopPerson(p) });
+    }
+    acts.push({ label: 'カメラで追う', run: () => followPerson(p) });
+    acts.push({ label: '検証メニュー', run: () => debugActions(p) });
+    showActions(p.name, `仲間・${stateText(p)}`, acts);
+    return;
   }
+  inspected = p;
+  const label = p.title || FACTIONS[p.faction]?.label || '流れ者';
+  const acts = [];
+  if (!dead && !p.bound) acts.push({ label: down ? 'とどめを刺す' : '攻撃する', run: () => { const f = selectedParty().filter((m) => m.state === 'ok'); if (!f.length) { toast('攻撃する仲間を選択してください'); return; } if (down) { f.forEach((m) => { m.fight.target = p.id; m.fight.ordered = true; }); toast('倒れた相手にとどめを刺します'); } else orderAttack(world, f, p); } });
+  if (down) {
+    acts.push({ label: '持ち物をあさる', run: () => openPerson(p.id, 'equip') });
+    if (!dead && !p.bound) acts.push({ label: '縛る', run: need((a) => orderBind(world, a, p)) });
+    if (p.bound) acts.push({ label: '縄をほどく', run: need((a) => orderRelease(world, a, p)) });
+    acts.push({ label: '担ぐ', run: need((a) => orderCarry(world, a, p)) });
+  } else {
+    acts.push({ label: '話す', phase: 'Phase 4' });
+  }
+  if (!dead) acts.push({ label: '治療する', run: () => treatWith(p) });
+  acts.push({ label: '体の状態', run: () => openPerson(p.id, 'body') });
+  acts.push({ label: 'カメラで追う', run: () => followPerson(p) });
+  if (!down) acts.push({ label: 'そばへ移動', run: () => moveSelectedTo(p.x + 1.2, p.z + 1.2) });
+  showActions(p.name, `${label}・${RACES[p.race].label}・${stateText(p)}${p.bounty ? `・賞金${p.bounty}` : ''}`, acts);
 }
 
 // =====================================================================
@@ -433,13 +474,25 @@ function renderSheet() {
 let personId = null, personSub = 'body';
 function openPerson(id, sub = 'body') { personId = id; personSub = sub; closePop(); openSheet('person'); }
 
+// あさる・取る：倒れている／死んでいる／縛られている相手から、選択中（なければ近い）仲間へ移す
+function looter(from) {
+  const sel = selectedParty().filter((m) => m.state === 'ok' && m !== from);
+  if (sel.length) return sel[0];
+  return partyOf(world).filter((m) => m.state === 'ok' && m !== from).sort((a, b) => Math.hypot(a.x - from.x, a.z - from.z) - Math.hypot(b.x - from.x, b.z - from.z))[0];
+}
+const lootable = (p) => p.kind !== 'party' && (p.state !== 'ok' || p.bound);
+
 function sheetPerson(body) {
   const p = personById(world, personId);
   if (!p) { sheetTab = 'party'; renderSheet(); return; }
   const race = RACES[p.race];
+  const mine = p.kind === 'party';
+  const mode = mine ? 'mine' : lootable(p) ? 'loot' : 'view';
+  const who = p.kind === 'party' ? '仲間' : (p.title || FACTIONS[p.faction]?.label || '流れ者');
+  const tags = [p.bounty ? `賞金首 ${p.bounty}錆貨` : '', p.bound ? '縛られている' : ''].filter(Boolean).join('・');
   body.innerHTML = `
-    <div class="phead"><img src="${faceIcon(p)}" alt=""><div class="info"><b>${p.name}</b> <span class="muted">${p.surname}</span><br>${p.kind === 'party' ? '仲間' : '流れ者'}・${race.label}・${stateText(p)}</div></div>
-    <div class="subtabs">${[['body', '体'], ['skills', '能力'], ['inv', '持ち物']].map(([k, l]) => `<button class="btn ${personSub === k ? 'on' : ''}" data-sub="${k}">${l}</button>`).join('')}</div>
+    <div class="phead"><img src="${faceIcon(p)}" alt=""><div class="info"><b>${p.name}</b> <span class="muted">${p.surname}</span><br>${who}・${race.label}・${stateText(p)}${tags ? `<br><span style="color:#e9b47a">${tags}</span>` : ''}</div></div>
+    <div class="subtabs">${[['body', '体'], ['equip', '装備'], ['inv', '持ち物'], ['skills', '能力']].map(([k, l]) => `<button class="btn ${personSub === k ? 'on' : ''}" data-sub="${k}">${l}</button>`).join('')}</div>
     <div id="psub"></div>`;
   body.querySelectorAll('[data-sub]').forEach((b) => { b.onclick = () => { personSub = b.dataset.sub; renderSheet(); }; });
   const sub = body.querySelector('#psub');
@@ -450,42 +503,49 @@ function sheetPerson(body) {
       const t = document.createElement('button'); t.className = 'btn'; t.textContent = '治療する';
       t.onclick = () => { treatWith(p); closeSheet(); };
       row.appendChild(t);
-      if (p.kind === 'party' && p.state === 'ok') {
+      if (mine && p.state === 'ok') {
         const r = document.createElement('button'); r.className = 'btn'; r.textContent = '休む';
         r.onclick = () => { orderRest(world, [p.id]); closeSheet(); toast(`${p.name}は座って休みます`); };
         row.appendChild(r);
       }
       sub.appendChild(row);
     }
-  } else if (personSub === 'skills') {
-    sub.innerHTML = renderSkills(p);
-  } else {
-    const lost = ['armL', 'armR', 'legL', 'legR'].filter((id) => p.body[id].lost && !p.body[id].prosthetic);
-    const mine = p.kind === 'party';
-    sub.innerHTML = renderInventory(p, mine && race.eats && p.state === 'ok', mine ? lost : []);
-    if (!mine) sub.querySelectorAll('[data-act]').forEach((b) => b.remove());
-    sub.querySelectorAll('[data-act]').forEach((b) => {
-      b.onclick = async () => {
-        const id = b.dataset.id, act = b.dataset.act;
-        if (act === 'eat') { if (eat(world, p, id)) toast(`${p.name}は${ITEMS[id].label}を食べた`); }
-        if (act === 'attach') {
-          const part = lost.length === 1 ? lost[0] : (await ask('どこに付けますか？', lost.map((l) => ({ label: PART[l].label, value: l })).concat([{ label: 'やめる', value: null }]))).value;
-          if (part) attachProsthetic(world, p, part, id);
-        }
-        if (act === 'give') {
-          const others = partyOf(world).filter((m) => m !== p && m.state !== 'dead');
-          if (!others.length) { toast('渡せる仲間がいません'); return; }
-          const r = await ask(`${ITEMS[id].label}をだれに渡しますか？`, others.map((m) => ({ label: m.name, value: m.id })).concat([{ label: 'やめる', value: null }]));
-          if (r.value) {
-            const to = personById(world, r.value);
-            const st = p.inv.find((x) => x.id === id);
-            if (st) { st.qty--; if (st.qty <= 0) p.inv.splice(p.inv.indexOf(st), 1); const t2 = to.inv.find((x) => x.id === id); if (t2) t2.qty++; else to.inv.push({ id, qty: 1 }); toast(`${to.name}に${ITEMS[id].label}を渡した`); }
-          }
-        }
-        renderSheet();
-      };
-    });
+    return;
   }
+  if (personSub === 'skills') { sub.innerHTML = renderSkills(p); return; }
+  const lost = ['armL', 'armR', 'legL', 'legR'].filter((id) => p.body[id].lost && !p.body[id].prosthetic);
+  if (mode === 'loot') sub.innerHTML = `<div class="note">取った物は${looter(p)?.name || '仲間'}の持ち物に入ります（選択中の仲間を優先）。</div>`;
+  sub.innerHTML += personSub === 'equip' ? renderEquip(p, mode) : renderInventory(p, mode, mine && race.eats && p.state === 'ok', lost);
+  sub.querySelectorAll('[data-act]').forEach((b) => {
+    b.onclick = async () => {
+      const act = b.dataset.act;
+      const st = b.dataset.idx !== undefined ? p.inv[+b.dataset.idx] : null;
+      if (act === 'unequip') unequip(p, b.dataset.slot);
+      if (act === 'equip' && st) {
+        if (p.state !== 'ok' && mine) { toast('動ける状態でないと装備できません'); return; }
+        equipItem(p, st.id, st.q ?? 1);
+        const wpn = ITEMS[st.id].weapon;
+        if (wpn && wpn.reqStr > p.skills.str.lv) toast(`筋力が足りないため、${ITEMS[st.id].label}の攻撃が遅くなります（必要 ${wpn.reqStr}）`);
+      }
+      if (act === 'eat' && st) { if (eat(world, p, st.id)) toast(`${p.name}は${ITEMS[st.id].label}を食べた`); }
+      if (act === 'attach' && st) {
+        const part = lost.length === 1 ? lost[0] : (await ask('どこに付けますか？', lost.map((l) => ({ label: PART[l].label, value: l })).concat([{ label: 'やめる', value: null }]))).value;
+        if (part) attachProsthetic(world, p, part, st.id);
+      }
+      if (act === 'give' && st) {
+        const others = partyOf(world).filter((m) => m !== p && m.state !== 'dead');
+        if (!others.length) { toast('渡せる仲間がいません'); return; }
+        const r = await ask(`${itemLabel(st.id, st.q)}をだれに渡しますか？`, others.map((m) => ({ label: m.name, value: m.id })).concat([{ label: 'やめる', value: null }]));
+        if (r.value) { const to = personById(world, r.value); if (removeItem(p, st.id, 1, st.q ?? 1)) { addItem(to, st.id, 1, st.q ?? 1); toast(`${to.name}に渡しました`); } }
+      }
+      const to = looter(p);
+      if ((act === 'take' || act === 'takeEquip' || act === 'takeMoney') && !to) { toast('受け取れる仲間がいません'); return; }
+      if (act === 'take' && st) { const q = st.q ?? 1; if (removeItem(p, st.id, 1, q)) addItem(to, st.id, 1, q); }
+      if (act === 'takeEquip') { const e = p.equip[b.dataset.slot]; if (e) { p.equip[b.dataset.slot] = null; p.equipVer = (p.equipVer || 0) + 1; addItem(to, e.id, 1, e.q); toast(`${to.name}が${itemLabel(e.id, e.q)}を取った`); } }
+      if (act === 'takeMoney') { world.money += p.money; toast(`${p.money}錆貨を手に入れた`); p.money = 0; }
+      renderSheet();
+    };
+  });
 }
 
 function sheetParty(body) {
@@ -600,6 +660,10 @@ function sheetSettings(body) {
     <h3>検証用</h3>
     <div class="row">
       <button class="btn ${world.debugFast ? 'on' : ''}" id="ffBtn">時間を60倍で早送り</button>
+    </div>
+    <h3>ゲーム</h3>
+    <div class="row">
+      <button class="btn ${world.banditsOn !== false ? 'on' : ''}" id="banditBtn">盗賊の出現：${world.banditsOn !== false ? 'あり' : 'なし'}</button>
       <button class="btn" id="manualBtn2">操作マニュアル</button>
     </div>
     <div class="note">ビルド ${BUILD.build}（${BUILD.time}）</div>`;
@@ -617,6 +681,7 @@ function sheetSettings(body) {
   $('fsBtn').onclick = tryFullscreen;
   $('ffBtn').onclick = () => { world.debugFast = !world.debugFast; toast(world.debugFast ? '時間を60倍で早送り中' : '早送りを解除しました'); renderSheet(); };
   $('manualBtn2').onclick = openManual;
+  $('banditBtn').onclick = () => { world.banditsOn = world.banditsOn === false; toast(world.banditsOn ? '盗賊が現れるようになりました' : '盗賊は新しく現れなくなりました（今いる盗賊は残ります）'); renderSheet(); };
 }
 
 function startProbe() {
@@ -675,6 +740,8 @@ function loop(now) {
   const k = atmosphere.update(world.hour, focus, camera.position, q.fogFar, rig.dist);
   terrain.update(focus, k.fog, running ? 2 : 6);
   humans.update(world.people, focus, elapsed);
+  if (world.events?.length) { effects.spawn(world.events); world.events.length = 0; }
+  effects.update(dt);
 
   // 選択リングと移動先
   ringItems.length = 0; destItems.length = 0;
@@ -685,7 +752,12 @@ function loop(now) {
       ringItems.push({ x: p.x, z: p.z, color: RING.party });
       if (p.goal) destItems.push(p.goal);
     }
-    if (inspected) ringItems.push({ x: inspected.x, z: inspected.z, color: RING.neutral });
+    if (inspected && !inspected.carriedBy) ringItems.push({ x: inspected.x, z: inspected.z, color: inspected.state === 'ok' && hostile(inspected, partyOf(world)[0] || inspected) ? RING.hostile : RING.neutral });
+    // 襲ってきている敵は赤いリング
+    for (const o of world.people) {
+      if (o === inspected || o.state !== 'ok' || o.bound || o.carriedBy) continue;
+      if ((o.squadHunting || o.angryAt?.includes('player')) && Math.hypot(o.x - focus.x, o.z - focus.z) < 70) ringItems.push({ x: o.x, z: o.z, color: RING.hostile, scale: 0.9 });
+    }
   }
   markers.update(ringItems, destItems, elapsed);
 
@@ -706,6 +778,9 @@ function loop(now) {
     $('dayLabel').textContent = `${world.day}日目 ${atmosphere.isNight ? '夜' : world.hour < 10 ? '朝' : world.hour < 17 ? '昼' : '夕'}`;
     $('moneyLabel').textContent = `${world.money} ${PARTY.currency}`;
     updatePartyMarks();
+    const party0 = partyOf(world);
+    const cm = party0.some((m) => m.fight?.target && m.state === 'ok') || world.people.some((o) => o.state === 'ok' && (o.squadHunting || o.angryAt?.includes('player')) && party0.some((m) => Math.hypot(m.x - o.x, m.z - o.z) < 45));
+    if (cm !== combatMode) { combatMode = cm; $('restBtn').textContent = cm ? '退却' : '休む'; $('restBtn').classList.toggle('danger', cm); }
     // 詳細シートを開いている間は1秒ごとに数値を更新
     sheetRefresh -= 0.25;
     if (sheetRefresh <= 0 && sheet.classList.contains('open') && sheetTab === 'person' && personSub !== 'inv' && $('dialog').classList.contains('hide')) {
@@ -745,4 +820,4 @@ function boot() {
 boot();
 
 // 自動テスト用
-window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, pick: (x, y) => pickPeople(camera, world.people, x, y).length };
+window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, orderBind, orderCarry, orderAttack, pick: (x, y) => pickPeople(camera, world.people, x, y).length };

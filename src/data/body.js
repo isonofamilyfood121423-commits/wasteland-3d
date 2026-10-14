@@ -46,11 +46,12 @@ export const SKILLS = [
   { id: 'str', label: '筋力', grow: '重い荷物を持って歩く' },
   { id: 'agi', label: '敏捷', grow: '走る' },
   { id: 'tough', label: '耐久', grow: 'ダメージを受ける・気絶する' },
-  { id: 'melee', label: '近接攻撃', grow: '戦う（Phase 3）' },
-  { id: 'defense', label: '防御', grow: '攻撃を受け止める（Phase 3）' },
-  { id: 'dodge', label: '回避', grow: '攻撃をかわす（Phase 3）' },
+  { id: 'melee', label: '近接攻撃', grow: '武器や素手で戦う' },
+  { id: 'defense', label: '防御', grow: '攻撃を受け止める' },
+  { id: 'dodge', label: '回避', grow: '攻撃をかわす' },
   { id: 'stealth', label: '隠密', grow: '忍び歩く（Phase 4）' },
   { id: 'theft', label: '窃盗', grow: '盗む（Phase 4）' },
+  { id: 'ranged', label: '射撃', grow: '弓で撃つ' },
   { id: 'medic', label: '医療', grow: '治療する' },
   { id: 'labor', label: '労働', grow: '採掘・運搬（Phase 5）' },
   { id: 'cook', label: '料理', grow: '調理する（Phase 5）' },
@@ -69,6 +70,8 @@ export const GROWTH = {
   toughXpPerDamage: 0.9,
   toughXpKo: 25,
   medicXpPerTreat: 12,
+  meleeXpPerSwing: 3, meleeXpPerHit: 2, rangedXpPerShot: 4,
+  defenseXpPerBlock: 5, dodgeXpPerDodge: 5, strXpPerBluntHit: 1.5,
 };
 
 // ---- 種族（オリジナル） ----
@@ -98,17 +101,5 @@ export const RACES = {
   },
 };
 
-// ---- アイテム ----
-// cat: 食料 / 医療 / 素材 / 義肢。weight: kg
-export const ITEM_CATS = { food: '食料', med: '医療', material: '素材', limb: '義肢' };
-export const ITEMS = {
-  dried_meat: { label: '干し肉', cat: 'food', weight: 0.5, food: 90, price: 18 },
-  hardtack: { label: '乾パン', cat: 'food', weight: 0.3, food: 55, price: 9 },
-  bandage: { label: '包帯', cat: 'med', weight: 0.2, aid: { kind: 'bandage', power: 18, speed: 1 }, price: 12 },
-  aidkit: { label: '応急処置キット', cat: 'med', weight: 0.8, aid: { kind: 'bandage', power: 40, speed: 1.6 }, price: 45 },
-  repair_kit: { label: '修理キット', cat: 'med', weight: 0.8, aid: { kind: 'repair', power: 35, speed: 1.2 }, price: 40 },
-  scrap: { label: '鉄くず', cat: 'material', weight: 4, price: 6 },
-  // 義肢（Phase 4 の店・Phase 5 の製作で入手。grade が高いほど性能が良い）
-  limb_crude: { label: '粗末な義肢', cat: 'limb', weight: 6, limb: { grade: 1, hp: 50, speed: 0.8 }, price: 300 },
-  limb_good: { label: '上等な義肢', cat: 'limb', weight: 5, limb: { grade: 2, hp: 80, speed: 1.0 }, price: 1200 },
-};
+// ---- アイテム（定義は items.js） ----
+export { ITEMS, ITEM_CATS } from './items.js';

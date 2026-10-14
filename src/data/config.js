@@ -148,7 +148,7 @@ export const INPUT = {
 
 // ---- セーブ ----
 export const SAVE = {
-  version: 2,         // Phase 2 で体・能力・所持品を追加
+  version: 3,         // 2: 体・能力・所持品（Phase 2） 3: 陣営・装備・戦闘（Phase 3）
   slots: 3,
   autosaveInterval: 60, // 秒（現実時間）
 };

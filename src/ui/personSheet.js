@@ -1,5 +1,6 @@
 // 人物の詳細（体の状態・能力・持ち物）をシートに描く
 import { PARTS, PART, SKILLS, ITEMS, ITEM_CATS, RACES, HEALTH, GROWTH } from '../data/body.js';
+import { SLOTS, WEAPON_CATS, QUALITY_MUL, itemLabel } from '../data/items.js';
 import { partMax, hungerState, carryWeight, carryCapacity, totalBleed, healthPct } from '../sim/body.js';
 
 export const hpColor = (b, max) => {
@@ -32,7 +33,12 @@ const bar = (v, max, color) => `<div class="bar"><i style="width:${Math.max(0, M
 
 export function stateText(p) {
   if (p.state === 'dead') return '死亡';
+  if (p.carriedBy) return '担がれている';
+  if (p.bound) return p.state === 'ko' ? '気絶・縛られている' : '縛られている';
   if (p.state === 'ko') return '気絶';
+  if (p.carrying) return '人を担いでいる';
+  if (p.retreat) return '退却中';
+  if (p.fight?.target) return '戦闘中';
   if (p.task?.kind === 'treat') return '治療中';
   if (p.task?.kind === 'rest') return '休息中';
   if (p.moveMode === 'crawl') return '這っている';
@@ -69,25 +75,46 @@ export function renderSkills(p) {
   }).join('') + '<div class="note">能力は使うほど伸びます。レベルが高いほど伸びにくくなります。空腹・飢餓のときは一時的に下がります。</div>';
 }
 
-// 持ち物。actions: {eat(id), give(id), attach(id)} のうち使えるものだけボタンを出す
-export function renderInventory(p, canEat, lostLimbs) {
+// 装備：mode = 'mine'（外す）/ 'loot'（取る）/ 'view'
+export function renderEquip(p, mode) {
+  let html = '';
+  for (const sl of SLOTS) {
+    const e = p.equip?.[sl.id];
+    const it = e ? ITEMS[e.id] : null;
+    let extra = '';
+    if (it?.weapon) { const c = WEAPON_CATS[it.weapon.type]; extra = `${c.label}・切${it.weapon.cut} 打${it.weapon.blunt}・必要筋力${it.weapon.reqStr}`; }
+    else if (it?.armor) { const parts = Object.keys(it.armor.cover).map((k) => PART[k].label).join(''); extra = parts ? `防御 切${Math.round(it.armor.cut * QUALITY_MUL[e.q] * 100)}% 打${Math.round(it.armor.blunt * QUALITY_MUL[e.q] * 100)}%・${parts}` : '見た目のみ'; }
+    else if (it?.carry) extra = `持てる重さ+${it.carry}kg`;
+    const btn = !e ? '' : mode === 'mine' ? `<button class="btn" data-act="unequip" data-slot="${sl.id}">外す</button>` : mode === 'loot' ? `<button class="btn" data-act="takeEquip" data-slot="${sl.id}">取る</button>` : '';
+    html += `<div class="irow"><div class="info"><span class="muted">${sl.label}</span>　<b>${e ? itemLabel(e.id, e.q) : '―'}</b>${extra ? `<br><small class="muted">${extra}</small>` : ''}</div>${btn}</div>`;
+  }
+  if (!p.equip?.weapon) html += '<div class="note">武器がないときは素手で戦います（弱い鈍器の扱い）。</div>';
+  return html;
+}
+
+// 持ち物：mode = 'mine' / 'loot' / 'view'
+export function renderInventory(p, mode, canEat, lostLimbs) {
   const w = carryWeight(p), cap = carryCapacity(p);
-  let html = `<div class="stat"><span>重さ</span>${bar(w, cap, w > cap ? '#c9573f' : '#c9a24f')}<em>${w.toFixed(1)}/${cap.toFixed(0)}kg</em></div>`;
-  if (w > cap) html += '<div class="note" style="color:#ffb39f">重すぎて動きが遅くなっています。</div>';
+  let html = mode === 'mine' ? `<div class="stat"><span>重さ</span>${bar(w, cap, w > cap ? '#c9573f' : '#c9a24f')}<em>${w.toFixed(1)}/${cap.toFixed(0)}kg</em></div>` : '';
+  if (mode === 'mine' && w > cap) html += '<div class="note" style="color:#ffb39f">重すぎて動きが遅くなっています。</div>';
+  if (mode === 'loot' && p.money) html += `<div class="irow"><div class="info"><b>錆貨</b> ×${p.money}</div><button class="btn" data-act="takeMoney">取る</button></div>`;
   if (!p.inv.length) return html + '<div class="note">何も持っていません。</div>';
-  const cats = Object.keys(ITEM_CATS);
-  for (const cat of cats) {
-    const items = p.inv.filter((s) => ITEMS[s.id].cat === cat);
+  for (const cat of Object.keys(ITEM_CATS)) {
+    const items = p.inv.map((s, idx) => ({ s, idx })).filter(({ s }) => ITEMS[s.id].cat === cat);
     if (!items.length) continue;
     html += `<h3>${ITEM_CATS[cat]}</h3>`;
-    for (const s of items) {
+    for (const { s, idx } of items) {
       const it = ITEMS[s.id];
       const btns = [];
-      if (it.food && canEat) btns.push(`<button class="btn" data-act="eat" data-id="${s.id}">食べる</button>`);
-      if (it.limb && lostLimbs.length) btns.push(`<button class="btn" data-act="attach" data-id="${s.id}">付ける</button>`);
-      btns.push(`<button class="btn" data-act="give" data-id="${s.id}">渡す</button>`);
-      const extra = it.food ? `空腹度+${it.food}` : it.aid ? `治療力${it.aid.power}${it.aid.kind === 'repair' ? '（錆骨用）' : ''}` : it.limb ? `等級${it.limb.grade}・HP${it.limb.hp}` : '';
-      html += `<div class="irow"><div class="info"><b>${it.label}</b> ×${s.qty}<br><small class="muted">${(it.weight * s.qty).toFixed(1)}kg　${extra}</small></div>${btns.join('')}</div>`;
+      if (mode === 'mine') {
+        if (it.slot) btns.push(`<button class="btn" data-act="equip" data-idx="${idx}">装備</button>`);
+        if (it.food && canEat) btns.push(`<button class="btn" data-act="eat" data-idx="${idx}">食べる</button>`);
+        if (it.limb && lostLimbs.length) btns.push(`<button class="btn" data-act="attach" data-idx="${idx}">付ける</button>`);
+        btns.push(`<button class="btn" data-act="give" data-idx="${idx}">渡す</button>`);
+      } else if (mode === 'loot') btns.push(`<button class="btn" data-act="take" data-idx="${idx}">取る</button>`);
+      let extra = it.food ? `空腹度+${it.food}` : it.aid ? `治療力${it.aid.power}${it.aid.kind === 'repair' ? '（錆骨用）' : ''}` : it.limb ? `等級${it.limb.grade}・HP${it.limb.hp}` : '';
+      if (it.weapon) extra = `${WEAPON_CATS[it.weapon.type].label}・切${it.weapon.cut} 打${it.weapon.blunt}`;
+      html += `<div class="irow"><div class="info"><b>${itemLabel(s.id, s.q)}</b> ×${s.qty}<br><small class="muted">${(it.weight * s.qty).toFixed(1)}kg　${extra}</small></div>${btns.join('')}</div>`;
     }
   }
   return html;

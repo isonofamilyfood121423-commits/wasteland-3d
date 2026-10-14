@@ -65,7 +65,7 @@ const working = (p, id) => usable(p, id) && p.body[id].hp > 0;
 
 // 移動できる状態：{ mode: 'run'|'limp'|'crawl'|'none', mul }
 export function mobility(p) {
-  if (p.state !== 'ok') return { mode: 'none', mul: 0 };
+  if (p.state !== 'ok' || p.bound || p.carriedBy) return { mode: 'none', mul: 0 };
   const L = working(p, 'legL'), R = working(p, 'legR');
   let mul = 1;
   for (const id of ['legL', 'legR']) { const pr = p.body[id].prosthetic; if (pr) mul *= ITEMS[pr].limb.speed; }
@@ -73,6 +73,7 @@ export function mobility(p) {
   if (hungerState(p) === 'starving') mul *= 0.8;
   const over = loadRatio(p);
   if (over > 1) mul *= Math.max(0.35, 1 - (over - 1) * 0.8);
+  if (p.carrying) mul *= 0.62; // 人を担いでいると遅い
   if (L && R) return { mode: 'run', mul };
   if (L || R) return { mode: 'limp', mul: mul * H.limpMul };
   return { mode: 'crawl', mul: 1 };
@@ -96,20 +97,25 @@ export function partsNeedingAid(p) {
 }
 
 // ======================= 所持品 =======================
-export function countItem(p, id) { return p.inv.find((s) => s.id === id)?.qty || 0; }
-export function addItem(p, id, qty = 1) {
-  const s = p.inv.find((x) => x.id === id);
-  if (s) s.qty += qty; else p.inv.push({ id, qty });
+// 所持品は { id, qty, q }（q＝品質 0〜3。武器・防具以外は 1 固定）
+const sameStack = (s, id, q) => s.id === id && (s.q ?? 1) === (q ?? 1);
+export function countItem(p, id) { return p.inv.filter((s) => s.id === id).reduce((a, s) => a + s.qty, 0); }
+export function addItem(p, id, qty = 1, q = 1) {
+  const s = p.inv.find((x) => sameStack(x, id, q));
+  if (s) s.qty += qty; else p.inv.push(q === 1 ? { id, qty } : { id, qty, q });
 }
-export function removeItem(p, id, qty = 1) {
-  const s = p.inv.find((x) => x.id === id);
+// q を省略すると品質を問わず取り出す
+export function removeItem(p, id, qty = 1, q) {
+  const s = q === undefined ? p.inv.find((x) => x.id === id) : p.inv.find((x) => sameStack(x, id, q));
   if (!s || s.qty < qty) return false;
   s.qty -= qty;
   if (s.qty <= 0) p.inv.splice(p.inv.indexOf(s), 1);
   return true;
 }
-export const carryWeight = (p) => p.inv.reduce((a, s) => a + ITEMS[s.id].weight * s.qty, 0);
-export const carryCapacity = (p) => 18 + effSkill(p, 'str') * 0.7;
+// 身に着けている物は重さを半分として数える（仕様判断：着た方が運びやすい）
+export const carryWeight = (p) => p.inv.reduce((a, s) => a + ITEMS[s.id].weight * s.qty, 0)
+  + Object.values(p.equip || {}).reduce((a, e) => a + (e ? ITEMS[e.id].weight * 0.5 : 0), 0);
+export const carryCapacity = (p) => 18 + effSkill(p, 'str') * 0.7 + (p.equip?.back ? ITEMS[p.equip.back.id].carry || 0 : 0);
 export const loadRatio = (p) => carryWeight(p) / carryCapacity(p);
 
 // ======================= 能力の成長 =======================
@@ -130,7 +136,7 @@ export function gainXp(w, p, id, amount) {
 
 // ======================= ダメージ =======================
 // cut=true で出血を伴う。戻り値：何が起きたか
-export function damage(w, p, partId, amount, { cut = true, source = '' } = {}) {
+export function damage(w, p, partId, amount, { cut = true, bleedMul = 1 } = {}) {
   if (p.state === 'dead') return null;
   const b = p.body[partId];
   if (b.lost && !b.prosthetic) partId = 'chest'; // 失った部位への攻撃は胴へ
@@ -138,7 +144,7 @@ export function damage(w, p, partId, amount, { cut = true, source = '' } = {}) {
   const reduce = Math.min(0.4, lv(p, 'tough') * H.toughReducePerLv);
   const dmg = amount * (1 - reduce);
   bb.hp -= dmg;
-  if (cut && !bb.prosthetic) bb.bleed += dmg * H.bleedFromDamage;
+  if (cut && !bb.prosthetic) bb.bleed += dmg * H.bleedFromDamage * bleedMul;
   gainXp(w, p, 'tough', dmg * GROWTH.toughXpPerDamage * 0.1);
   const max = partMax(p, partId);
   const def = PART[partId];

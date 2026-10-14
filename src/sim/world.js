@@ -2,12 +2,17 @@
 import { Rng } from '../core/rng.js';
 import { slopeAt } from './terrain.js';
 import { findSpawn } from './worldgen.js';
-import { findPath, walkable } from './pathfind.js';
+import { walkable } from './pathfind.js';
+import { clearTask, planPath, replan, stopPerson } from './move.js';
+import { emptyEquip } from './equip.js';
+import { newFight, stepFight, stepCombatTask, followCarrier, dropCarried, fleeFromFights } from './combat.js';
+import { stepSquads, makeEnemy } from './squads.js';
 import {
   pickRace, initHealth, mobility, bodyTick, gainXp, loadRatio, addItem, partsNeedingAid, findAidItem,
   treatPart, treatHours, armsUsable, totalBleed, damage as hurt,
 } from './body.js';
 import { TIME, CROWD, PALETTE, PARTY, NAMES } from '../data/config.js';
+export { stopPerson } from './move.js';
 import { RACES, HEALTH, GROWTH, ITEMS, PARTS } from '../data/body.js';
 
 function makeLook(r, party, raceId) {
@@ -25,14 +30,20 @@ function makeLook(r, party, raceId) {
   };
 }
 
-function makePerson(w, kind, x, z) {
+function uniqueName(w, r) {
+  const used = new Set(w.people.filter((p) => p.kind === 'party').map((p) => p.name));
+  for (let i = 0; i < 20; i++) { const n = r.pick(NAMES.first); if (!used.has(n)) return n; }
+  return r.pick(NAMES.first);
+}
+
+function makePerson(w, kind, x, z, faction) {
   const r = w.rng;
   const race = pickRace(r);
   const p = {
     id: w.nextId++,
     kind,
     race,
-    name: r.pick(NAMES.first),
+    name: kind === 'party' ? uniqueName(w, r) : r.pick(NAMES.first),
     surname: r.pick(NAMES.last),
     x, z, heading: r.next() * 6.28,
     speed: 0,
@@ -44,9 +55,23 @@ function makePerson(w, kind, x, z) {
     look: makeLook(r, kind === 'party', race),
     task: null,
     inv: [],
+    faction: faction || (kind === 'party' ? 'player' : 'drifter'),
+    equip: emptyEquip(),
+    fight: newFight(),
+    money: 0,
   };
   initHealth(p, r);
+  dressFromLook(p);
   return p;
+}
+
+// 見た目の設定（帽子・背負い袋）を装備として持たせる
+export function dressFromLook(p) {
+  if (p.look.hat) p.equip.head = { id: 'straw_hat', q: 1 };
+  if (p.look.pack) p.equip.back = { id: 'backpack', q: 1 };
+  p.equip.body = { id: 'rag_shirt', q: 1 };
+  p.equip.feet = { id: 'sandals', q: 1 };
+  p.equipVer = 1;
 }
 
 function giveStartingItems(p, rich) {
@@ -67,15 +92,22 @@ export function createWorld(seed) {
     debugFast: false,
     money: PARTY.startMoney,
     people: [],
+    squads: [],
+    time: 0,          // ゲーム内の経過秒（1x で現実の秒と同じ）
+    banditsOn: true,  // 盗賊の出現（設定で切り替え）
     log: [],
   };
   attachRuntime(w);
+  w.spawnTimer = (2 / 24) * w.daySeconds; // 最初の盗賊はゲーム内2時間後から
   const sp = w.spawn;
   for (let i = 0; i < PARTY.size; i++) {
     let x = sp.x + 14 + i * 1.6, z = sp.z + 10 + (i % 2) * 1.2;
     for (let t = 0; t < 20 && !walkable(x, z); t++) x += 2;
     const p = makePerson(w, 'party', x, z);
     giveStartingItems(p, i === 0);
+    // 仕様判断：序盤は無力。まともな武器は1本だけ、2人目は粗悪な鉄棍、3人目は素手
+    if (i === 0) p.equip.weapon = { id: 'rusty_blade', q: 1 };
+    if (i === 1) p.equip.weapon = { id: 'iron_club', q: 0 };
     w.people.push(p);
   }
   for (let i = 0; i < CROWD.count; i++) {
@@ -93,6 +125,10 @@ export function createWorld(seed) {
 // 保存しない実行時の関数をつなぐ（新規作成・ロードの両方で呼ぶ）
 export function attachRuntime(w) {
   w.addLogFn = (text, quiet) => addLog(w, text, quiet);
+  w.daySeconds = TIME.realSecondsPerDay;
+  w.events = w.events || [];
+  w.squads = w.squads || [];
+  w.time = w.time || 0;
 }
 
 export function partyOf(w) { return w.people.filter((p) => p.kind === 'party'); }
@@ -105,16 +141,13 @@ export function addLog(w, text, quiet = false) {
 }
 
 // ======================= 指示 =======================
-function clearTask(p) {
-  p.task = null;
-  p.resting = false;
-}
-
 export function orderMove(w, ids, gx, gz) {
   const movers = ids.map((id) => personById(w, id)).filter((p) => p && p.state === 'ok');
   const n = movers.length;
   movers.forEach((p, i) => {
     clearTask(p);
+    p.retreat = false;
+    p.fight.target = null; p.fight.ordered = false;
     let tx = gx, tz = gz;
     if (n > 1) {
       const ring = i === 0 ? 0 : Math.ceil(i / 6);
@@ -153,32 +186,13 @@ export function orderTreat(w, medicIds, patientId) {
   if (!started && medicIds.length) addLog(w, '治療できる仲間がいない。');
 }
 
-function planPath(w, p, gx, gz) {
-  p.goal = { x: gx, z: gz };
-  p.replans = 0;
-  p.lastPlanDist = Infinity;
-  replan(w, p);
-}
-
-function replan(w, p) {
-  const res = findPath(p.x, p.z, p.goal.x, p.goal.z);
-  if (!res || !res.points.length) {
-    if (p.kind === 'party' && Math.hypot(p.goal.x - p.x, p.goal.z - p.z) > 2 && !p.task) addLog(w, `${p.name}：そこへは行けない。`);
-    p.path = []; p.goal = null;
-    return;
-  }
-  p.path = res.points;
-  p.partial = !res.reached;
-}
-
-export function stopPerson(p) { p.path = []; p.goal = null; clearTask(p); }
-
 // ======================= 時間経過 =======================
 export function stepWorld(w, dt) {
   const scale = w.timeScale * (w.debugFast ? TIME.debugFastForward : 1);
   if (scale <= 0) return;
   const gdt = dt * scale;
 
+  w.time += gdt;
   w.hour += (gdt / TIME.realSecondsPerDay) * 24;
   while (w.hour >= 24) { w.hour -= 24; w.day++; }
 
@@ -188,11 +202,20 @@ export function stepWorld(w, dt) {
   for (let s = 0; s < sub; s++) {
     for (const p of w.people) {
       bodyTick(w, p, hours);
-      stepTask(w, p, hours);
+      if (p.carriedBy) { followCarrier(w, p); continue; }
+      if (p.carrying && p.state !== 'ok') dropCarried(w, p);
+      if (p.state !== 'ok') { if (p.fight) p.fight.act = null; p.speed = 0; continue; }
+      const busy = stepCombatTask(w, p, hours);
+      if (!busy) stepTask(w, p, hours);
+      const fight = busy || p.task?.kind === 'treat' ? null : stepFight(w, p, h);
+      if (fight === 'hold') { p.speed = Math.max(0, p.speed - h * 8); p.moveMode = 'run'; continue; }
       stepPerson(w, p, h);
     }
     separate(w.people, h);
   }
+  stepSquads(w, makePerson, gdt);
+  w.fleeTimer = (w.fleeTimer || 0) - gdt;
+  if (w.fleeTimer <= 0) { w.fleeTimer = 1; for (const p of w.people) fleeFromFights(w, p); }
   // 仲間が自動で応急処置（出血している仲間が近くにいて、手が空いているとき）
   w.autoAidTimer = (w.autoAidTimer || 0) - gdt;
   if (w.autoAidTimer <= 0) { w.autoAidTimer = 2; autoAid(w); }
@@ -203,7 +226,7 @@ function autoAid(w) {
   const bleeding = party.filter((p) => p.state !== 'dead' && totalBleed(p) > 0.3 && !party.some((m) => m.task?.kind === 'treat' && m.task.target === p.id));
   for (const patient of bleeding) {
     const medic = party
-      .filter((m) => m.state === 'ok' && !m.task && !m.path.length && armsUsable(m) && Math.hypot(m.x - patient.x, m.z - patient.z) < 20 && findAidItem(m, patient))
+      .filter((m) => m.state === 'ok' && !m.task && !m.path.length && !m.fight?.target && !m.carrying && armsUsable(m) && Math.hypot(m.x - patient.x, m.z - patient.z) < 20 && findAidItem(m, patient))
       .sort((a, b) => Math.hypot(a.x - patient.x, a.z - patient.z) - Math.hypot(b.x - patient.x, b.z - patient.z))[0];
     if (medic) { medic.task = { kind: 'treat', target: patient.id, t: 0, replan: 0, auto: true }; }
   }
@@ -278,8 +301,9 @@ function stepPerson(w, p, dt) {
         if (p.partial && left > 2 && p.replans < 30 && left < p.lastPlanDist - 1) {
           p.replans++; p.lastPlanDist = left; replan(w, p);
         } else {
-          if (p.partial && left > 2 && p.kind === 'party' && !p.task) addLog(w, `${p.name}：これ以上は進めない。`);
+          if (p.partial && left > 2 && p.kind === 'party' && !p.task && !p.quietPath) addLog(w, `${p.name}：これ以上は進めない。`);
           p.goal = null;
+          p.retreat = false;
         }
       }
     } else {
@@ -287,7 +311,7 @@ function stepPerson(w, p, dt) {
       p.stuck = moved > 0 && p.speed > 0.15 ? 0 : p.stuck + dt;
       if (p.stuck > 1.5 && p.goal) { p.stuck = 0; replan(w, p); }
     }
-  } else if (p.kind === 'drifter' && !p.task) {
+  } else if (p.kind === 'drifter' && !p.task && !p.fight?.target) {
     if (p.idle > 0) {
       p.idle -= dt;
       p.speed = Math.max(0, p.speed - dt * 3);
@@ -296,7 +320,8 @@ function stepPerson(w, p, dt) {
       p.idle = w.rng.range(CROWD.idleTime[0], CROWD.idleTime[1]);
       p.tx = undefined;
     } else {
-      moved = steerToward(p, p.tx, p.tz, dt, 1, mob);
+      moved = steerToward(p, p.tx, p.tz, dt, p.fleeing ? 2 : 1, mob);
+      if (p.fleeing && Math.hypot(p.tx - p.x, p.tz - p.z) < 1) p.fleeing = false;
       if (!moved) { p.tx = undefined; p.idle = 0.5; }
     }
   } else {
@@ -372,5 +397,17 @@ export const debug = {
   heavy(w, p) { hurt(w, p, 'chest', 70 + w.rng.next() * 20, { cut: true }); },
   loseLeg(w, p) { const id = p.body.legL.lost ? 'legR' : 'legL'; hurt(w, p, id, 400, { cut: true }); },
   starve(w, p) { p.hunger = 60; },
+  bandits(w, p) {
+    // 近くに盗賊の一団を呼ぶ（すぐに襲ってくる）
+    const sq = { id: w.nextId++, members: [], mode: 'hunt', cooldownUntil: 0, t: 0 };
+    ['thug', 'starved', 'starved'].forEach((type, i) => {
+      let x = p.x + 18 + i * 1.5, z = p.z + 6;
+      for (let k = 0; k < 10 && !walkable(x, z); k++) { x -= 3; }
+      const e = makeEnemy(w, makePerson, type, x, z);
+      e.squad = sq.id; w.people.push(e); sq.members.push(e.id);
+    });
+    w.squads.push(sq);
+    addLog(w, '盗賊の一団が現れた！（検証用）');
+  },
   giveLimb(w, p) { addItem(p, 'limb_crude', 1); addLog(w, `${p.name}に粗末な義肢を持たせた（検証用）。`); },
 };

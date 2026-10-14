@@ -139,6 +139,47 @@ with sync_playwright() as p:
     pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=2 >> text=保存'); pg.wait_for_timeout(400)
     pg.click('.slot >> nth=2 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1200)
     check('v2_roundtrip', G('const P = g.world.people.filter(x=>x.kind==="party"); return P[2].body.legL.lost && P[2].body.legR.lost && P[0].skills && P[0].inv;'))
+
+    # ---- Phase 3：戦闘・捕縛・担ぐ・あさる ----
+    G('const w = g.world; w.debugFast = false; w.timeScale = 1; w.hour = 11; const P = w.people.filter(x=>x.kind==="party"); P.forEach(p=>{ p.state="ok"; p.blood=100; for (const b of Object.values(p.body)) { b.hp = 60; b.bleed = 0; b.lost=false; b.prosthetic=null; } }); g.debug.bandits(w, P[0]); g.rig.target.x = P[0].x + 8; g.rig.target.z = P[0].z + 3; g.rig.dist = 16; g.rig.pitch = 0.75; window.__hits = 0;')
+    pg.wait_for_timeout(4000)
+    shot('17_combat.png')
+    check('fighting', G('return g.world.people.some(p => p.faction === "bandit" && p.fight && (p.fight.target || p.fight.act));'))
+    check('retreat_button', pg.inner_text('#restBtn') == '退却')
+    # 敵を1人気絶させて縛る・担ぐ・あさる
+    G('const w = g.world; const P0 = w.people.find(x=>x.kind==="party"); const e = w.people.filter(p => p.faction === "bandit").sort((a,b)=>Math.hypot(a.x-P0.x,a.z-P0.z)-Math.hypot(b.x-P0.x,b.z-P0.z))[0]; e.state = "ko"; e.koTimer = 99; e.body.chest.hp = -5; const P = w.people.filter(x=>x.kind==="party"); w.people.filter(p=>p.faction==="bandit" && p!==e).forEach(b=>{ b.state="dead"; }); P[0].state="ok"; P[0].body.armL.hp=50; P[0].body.armR.hp=50; g.orderBind(w, P[0], e); window.__e = e.id; window.__dbg = () => JSON.stringify({task: P[0].task, st: P[0].state, d: Math.hypot(P[0].x-e.x,P[0].z-e.z), ts: w.timeScale});')
+    for _ in range(20):
+        pg.wait_for_timeout(1000)
+        if G('return g.world.people.find(p => p.id === window.__e).bound === true;'): break
+    check('bound', G('return g.world.people.find(p => p.id === window.__e).bound === true;'))
+    G('const w = g.world; const e = w.people.find(p => p.id === window.__e); const P = w.people.filter(x=>x.kind==="party"); g.orderCarry(w, P[0], e);')
+    for _ in range(10):
+        pg.wait_for_timeout(700)
+        if G('const P = g.world.people.filter(x=>x.kind==="party"); return P[0].carrying === window.__e;'): break
+    check('carrying', G('const P = g.world.people.filter(x=>x.kind==="party"); return P[0].carrying === window.__e;'))
+    G('const P = g.world.people.filter(x=>x.kind==="party"); g.rig.target.x = P[0].x; g.rig.target.z = P[0].z; g.rig.dist = 8; P[0].path=[{x:P[0].x+5, z:P[0].z}]; P[0].goal={x:P[0].x+5, z:P[0].z};')
+    pg.wait_for_timeout(900)
+    shot('18_carry.png')
+    G('g.selected.clear(); const P = g.world.people.filter(x=>x.kind==="party"); g.selected.add(P[1].id); g.openPerson(window.__e, "equip");')
+    pg.wait_for_timeout(400)
+    shot('19_loot.png')
+    before = G('const P = g.world.people.filter(x=>x.kind==="party"); return P[1].inv.length;')
+    if pg.query_selector('#psub [data-act="takeEquip"]'):
+        pg.click('#psub [data-act="takeEquip"] >> nth=0'); pg.wait_for_timeout(200)
+    check('looted', G('const P = g.world.people.filter(x=>x.kind==="party"); return P[1].inv.length;') > before)
+    pg.click('.subtabs [data-sub="equip"]')
+    G('const P = g.world.people.filter(x=>x.kind==="party"); g.openPerson(P[1].id, "inv");')
+    pg.wait_for_timeout(300)
+    if pg.query_selector('#psub [data-act="equip"]'):
+        pg.click('#psub [data-act="equip"] >> nth=0'); pg.wait_for_timeout(200)
+    G('const P = g.world.people.filter(x=>x.kind==="party"); g.openPerson(P[1].id, "equip");')
+    pg.wait_for_timeout(300)
+    shot('20_equip.png')
+    pg.click('#closeSheet')
+    # セーブ v3 の往復
+    pg.tap('#menuBtn'); pg.click('#tabs [data-tab="save"]'); pg.click('.slot >> nth=3 >> text=保存'); pg.wait_for_timeout(400)
+    pg.click('.slot >> nth=3 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1200)
+    check('v3_roundtrip', G('return g.world.people.some(p => p.bound) && g.world.people.filter(x=>x.kind==="party").every(p => p.equip);'))
     b.close()
 srv.shutdown()
 
