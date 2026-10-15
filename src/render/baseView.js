@@ -42,7 +42,7 @@ function shape(type) {
       const wall = 0xc2a77e, H = 2.6;
       g.box(W, H, 0.3, 0, 0, -D / 2 + 0.15, wall).box(0.3, H, D, -W / 2 + 0.15, 0, 0, wall).box(0.3, H, D, W / 2 - 0.15, 0, 0, wall);
       g.box((W - 1.8) / 2, H, 0.3, -(W + 1.8) / 4, 0, D / 2 - 0.15, wall).box((W - 1.8) / 2, H, 0.3, (W + 1.8) / 4, 0, D / 2 - 0.15, wall);
-      g.box(W + 0.6, 0.25, D + 0.6, 0, H, 0, 0x9c845f).box(1.8, 0.4, 0.3, 0, H - 0.4, D / 2 - 0.15, wall);
+      g.box(1.8, 0.4, 0.3, 0, H - 0.4, D / 2 - 0.15, wall); // 屋根は別（中に入ると消す）
       break;
     }
     case 'wall':
@@ -115,6 +115,9 @@ export class BaseView {
         scene.add(im); dict[t] = im;
       }
     }
+    // 小屋の屋根（中にいるときは描かない）
+    const hutRoof = new Geo().box(BUILDINGS.hut.w + 0.6, 0.25, BUILDINGS.hut.d + 0.6, 0, 2.6, 0, 0x9c845f).done();
+    this.hutRoof = new THREE.InstancedMesh(hutRoof, this.mat, 48); this.hutRoof.count = 0; this.hutRoof.frustumCulled = false; this.hutRoof.castShadow = true; scene.add(this.hutRoof);
     // 門の扉・風車の羽根・作物
     const door = new Geo().box(3.0, 2.8, 0.25, 0, 0.2, 0, 0x5c4636).box(3.0, 0.2, 0.3, 0, 1.4, 0.05, IRON).done();
     this.doors = new THREE.InstancedMesh(door, this.mat, 48); this.doors.count = 0; this.doors.frustumCulled = false; scene.add(this.doors);
@@ -142,11 +145,11 @@ export class BaseView {
     return m;
   }
 
-  update(world, time) {
+  update(world, time, inside = []) {
     const base = world.base;
     const counts = {}, scounts = {};
     for (const t of Object.keys(BUILDINGS)) { counts[t] = 0; scounts[t] = 0; }
-    let doors = 0, blades = 0, crops = 0;
+    let doors = 0, blades = 0, crops = 0, roofs = 0;
     if (base) {
       for (const b of base.buildings) {
         const B = BUILDINGS[b.type];
@@ -155,6 +158,11 @@ export class BaseView {
           if (counts[b.type] >= im.instanceMatrix.count) continue;
           im.setMatrixAt(counts[b.type]++, this.matFor(b));
           if (B.gate && !b.open) this.doors.setMatrixAt(doors++, this.matFor(b));
+          if (b.type === 'hut' && roofs < 48) {
+            const sw = (b.rot || 0) % 2 ? [B.d, B.w] : [B.w, B.d];
+            const inHut = inside.some((pt) => Math.abs(pt.x - b.x) < sw[0] / 2 + 0.3 && Math.abs(pt.z - b.z) < sw[1] / 2 + 0.3);
+            if (!inHut) this.hutRoof.setMatrixAt(roofs++, this.matFor(b));
+          }
           if (b.type === 'generator') {
             const { m, q, v, s } = this;
             const y = (b.ground ?? heightAt(b.x, b.z)) + 5.7;
@@ -188,6 +196,7 @@ export class BaseView {
       this.done[t].count = counts[t]; this.done[t].instanceMatrix.needsUpdate = true; this.done[t].visible = counts[t] > 0;
       this.sites[t].count = scounts[t]; this.sites[t].instanceMatrix.needsUpdate = true; this.sites[t].visible = scounts[t] > 0;
     }
+    this.hutRoof.count = roofs; this.hutRoof.instanceMatrix.needsUpdate = true; this.hutRoof.visible = roofs > 0;
     this.doors.visible = doors > 0; this.blades.visible = blades > 0; this.crops.visible = crops > 0;
     this.doors.count = doors; this.doors.instanceMatrix.needsUpdate = true;
     this.blades.count = blades; this.blades.instanceMatrix.needsUpdate = true;
@@ -211,5 +220,5 @@ export class BaseView {
     this.preview.rotation.set(0, -rot * Math.PI / 2, 0);
   }
   hidePreview() { this.preview.visible = false; this.wallPre.count = 0; }
-  setShadows(on) { for (const im of Object.values(this.done)) im.castShadow = on; }
+  setShadows(on) { for (const im of Object.values(this.done)) im.castShadow = on; this.hutRoof.castShadow = on; }
 }

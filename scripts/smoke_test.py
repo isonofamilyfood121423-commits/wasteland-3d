@@ -287,9 +287,9 @@ with sync_playwright() as p:
     # ---- Phase 6：話しかけ・天候・襲撃・隊商・遺跡 ----
     # 離れた所から話しかける → 歩いて行って自動で会話・会話中は時間停止
     G('const w = g.world; w.banditsOn = false; w.people = w.people.filter(p => !(p.squad && !p.town)); w.squads = []; w.people.filter(x=>x.kind==="party").forEach(p => { p.state = "ok"; p.blood = 100; for (const b of Object.values(p.body)) { b.hp = Math.max(b.hp, 60); b.bleed = 0; } });')
-    G('const w = g.world; w.timeScale = 1; w.debugFast = false; const k = w.people.find(p => p.role === "shopkeeper" && p.town === "sunamachi"); const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.state="ok"; p.task=null; p.x = k.x + 10 + i; p.z = k.z + 6; p.path=[]; p.goal=null; }); g.selected.clear(); g.selected.add(P[0].id); g.rig.target.x = k.x; g.rig.target.z = k.z; g.rig.dist = 20; window.__k = k.id; g.talk(k);')
+    G('const w = g.world; w.timeScale = 1; w.debugFast = false; const k = w.people.find(p => p.role === "shopkeeper" && p.town === "sunamachi"); const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.state="ok"; p.task=null; p.x = k.x + 10 + i; p.z = k.z + 6; p.path=[]; p.goal=null; }); g.selected.clear(); g.selected.add(P[0].id); g.rig.target.x = k.x; g.rig.target.z = k.z; g.rig.dist = 20; window.__k = k.id; w.timeScale = 3; g.talk(k);')
     check('talk_walks', G('return !!g.ph6.pendingTalk;'))
-    for _ in range(20):
+    for _ in range(40):
         pg.wait_for_timeout(500)
         if pg.is_visible('#dialog'): break
     check('talk_auto_open', pg.is_visible('#dialog'))
@@ -297,7 +297,8 @@ with sync_playwright() as p:
     shot('34_talk_auto.png')
     if pg.is_visible('#dialog'): pg.click('#dlgBtns >> text=立ち去る')
     pg.wait_for_timeout(900)
-    check('talk_resumed', G('return g.world.timeScale === 1;'))
+    check('talk_resumed', G('return g.world.timeScale === 3;'))
+    G('g.world.timeScale = 1;')
     # 天候
     G('const w = g.world; const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.x = 60 + i*1.5; p.z = -40; p.path=[]; p.goal=null; }); g.rig.target.x = 62; g.rig.target.z = -42; g.rig.dist = 30; w.hour = 13; g.ph6.setWeather(w, "sandstorm", 3); w.weather.i = 1;')
     pg.wait_for_timeout(1500)
@@ -356,7 +357,27 @@ with sync_playwright() as p:
     pg.click('.slot >> nth=3 >> text=読込'); pg.click('#dlgBtns >> text=読み込む'); pg.wait_for_timeout(1500)
     check('v6_roundtrip', G('const w = g.world; return w.traffic && w.traffic.length >= 5 && w.ruins && Object.values(w.ruins).includes(2) && w.raidFreq === "normal" && !!w.raid;'))
     G('g.openSheet("settings");'); pg.wait_for_timeout(300); shot('42_settings.png')
+    check('brightness_ui', pg.query_selector('[data-bri="1.2"]') is not None and pg.query_selector('[data-night="2"]') is not None and pg.query_selector('[data-lbl="all"]') is not None)
+    pg.click('[data-night="2"]'); pg.wait_for_timeout(200)
+    check('night_setting', G('return g.settings.nightLift === 2;'))
+    G('g.closeSheet();')
     G('g.openMap();'); pg.wait_for_timeout(800); shot('43_map.png')
+
+    # ---- Phase 7：建物の中・名札・夜の明るさ ----
+    if pg.is_visible('#mapClose'): pg.click('#mapClose')
+    G('const w = g.world; w.timeScale = 1; w.hour = 12; w.debugFast = false; w.banditsOn = false; g.closeSheet && g.closeSheet(); const k = w.people.find(p => p.role === "shopkeeper" && p.town === "sunamachi"); window.__k = k; const P = w.people.filter(x=>x.kind==="party"); P.forEach((p,i)=>{ p.state="ok"; p.bound=false; p.carrying=null; p.task=null; p.x = k.x + 18 + i; p.z = k.z + 18; p.path=[]; p.goal=null; }); g.selected.clear(); g.selected.add(P[0].id); g.rig.target.x = k.x; g.rig.target.z = k.z; g.rig.dist = 26; g.rig.pitch = 0.9; g.orderMoveTo(k.station.x + 0.1, k.station.z + 0.1); w.timeScale = 3;')
+    for _ in range(40):
+        pg.wait_for_timeout(700)
+        if G('const P = g.world.people.filter(x=>x.kind==="party"); return Math.hypot(P[0].x - window.__k.station.x, P[0].z - window.__k.station.z) < 2.5;'): break
+    check('walk_inside_shop', G('const P = g.world.people.filter(x=>x.kind==="party"); return Math.hypot(P[0].x - window.__k.station.x, P[0].z - window.__k.station.z) < 2.5;'))
+    G('g.world.timeScale = 1; const P = g.world.people.filter(x=>x.kind==="party"); g.rig.target.x = P[0].x; g.rig.target.z = P[0].z; g.rig.dist = 18;')
+    pg.wait_for_timeout(1200)
+    shot('44_inside_shop.png')
+    check('roof_hidden', G('return g.towns.roofs.some(r => !r.mesh.visible && Math.abs(r.b.x - window.__k.station.x) < 1 && Math.abs(r.b.z - window.__k.station.z) < 1);'))
+    check('labels_shown', pg.evaluate('() => [...document.querySelectorAll("#labels .lbl")].filter(e => !e.classList.contains("hide")).length') >= 2)
+    check('label_shopkeeper', '店主' in pg.evaluate('() => [...document.querySelectorAll("#labels .lbl")].map(e => e.textContent).join(" ")'))
+    G('g.world.hour = 23.5;'); pg.wait_for_timeout(1500)
+    shot('45_night_bright.png')
     b.close()
 srv.shutdown()
 

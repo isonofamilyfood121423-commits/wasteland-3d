@@ -10,7 +10,7 @@ import { stepSquads, makeEnemy } from './squads.js';
 import { bindWorld, stepFactions, onDeath, onTreatOther } from './factions.js';
 import { ensureTownObstacles, allTowns } from './towns.js';
 import { stepBase, stepWork, freeBed, defaultJobs, refreshBlocking } from './base.js';
-import { resetBlocked } from './pathfind.js';
+import { resetBlocked, nearestFree, toCell } from './pathfind.js';
 import { stepWeather } from './weather.js';
 import { stepRaids, begin as beginRaid, ensureRaid } from './raids.js';
 import { stepTraffic } from './traffic.js';
@@ -21,7 +21,7 @@ import {
   pickRace, initHealth, mobility, bodyTick, gainXp, loadRatio, addItem, partsNeedingAid, findAidItem,
   treatPart, treatHours, armsUsable, totalBleed, damage as hurt,
 } from './body.js';
-import { TIME, CROWD, PALETTE, PARTY, NAMES } from '../data/config.js';
+import { TIME, CROWD, PALETTE, PARTY, NAMES, PATH } from '../data/config.js';
 export { stopPerson } from './move.js';
 import { RACES, HEALTH, GROWTH, ITEMS, PARTS } from '../data/body.js';
 
@@ -148,6 +148,33 @@ export function attachRuntime(w) {
   ensureTownObstacles(true);
   bindWorld(w);
   refreshBlocking(w);
+  refreshStations(w);
+  unstickPeople(w);
+}
+
+// 店主・酒場の主人・役人の持ち場を町の作りから決め直す（町の作りが変わった古いセーブ向け）
+function refreshStations(w) {
+  const L = Object.fromEntries(allTowns().map((l) => [l.town.id, l]));
+  for (const p of w.people) {
+    if (!p.town || !p.shop || !L[p.town]) continue;
+    const b = L[p.town].buildings.find((x) => x.type === 'shop' && x.shop === p.shop);
+    if (b?.inside) p.station = { x: b.inside.x, z: b.inside.z };
+  }
+  for (const p of w.people) {
+    if (p.role === 'recruit' && p.station && !walkable(p.station.x, p.station.z)) {
+      const f = nearestFree(toCell(p.station.x), toCell(p.station.z), 4);
+      if (f) p.station = { x: f[0] * PATH.cell + PATH.cell / 2, z: f[1] * PATH.cell + PATH.cell / 2 };
+    }
+  }
+}
+
+// 通れない所（建物の壁など）に立っている人を、近くの通れる所へ移す（町の作りが変わった古いセーブ向け）
+function unstickPeople(w) {
+  for (const p of w.people) {
+    if (p.carriedBy || p.caged || walkable(p.x, p.z)) continue;
+    const f = nearestFree(toCell(p.x), toCell(p.z), 6);
+    if (f) { p.x = f[0] * PATH.cell + PATH.cell / 2; p.z = f[1] * PATH.cell + PATH.cell / 2; }
+  }
 }
 
 // ======================= 町の人々 =======================
@@ -182,12 +209,17 @@ export function populateTowns(w) {
     // 店主・酒場・役人は入口の前に立つ
     for (const b of L.buildings.filter((bb) => bb.type === 'shop')) {
       const role = b.shop === 'bar' ? 'bartender' : b.shop === 'police' ? 'police' : 'shopkeeper';
-      const p = add(role, b.door.x, b.door.z);
-      p.shop = b.shop; p.station = { x: b.door.x, z: b.door.z };
-      p.heading = Math.atan2(t.x - b.door.x, t.z - b.door.z);
+      // 店主・酒場の主人・役人は建物の中（中央）に立つ
+      const at = b.inside || b.door;
+      const p = add(role, at.x, at.z);
+      p.shop = b.shop; p.station = { x: at.x, z: at.z };
+      p.heading = Math.atan2(b.door.x - at.x, b.door.z - at.z);
       if (b.shop === 'bar') {
         const n = 1 + Math.floor(w.rng.next() * 3);
-        for (let i = 0; i < n; i++) { const q = add('recruit', b.door.x + (i - 1) * 1.6, b.door.z + 2.4); q.station = { x: q.x, z: q.z }; }
+        // 酒場の客は店の中の左右に座る（横長の建物の空いたマス）
+        const along = b.w > b.d ? [1, 0] : [0, 1];
+        const spots = [-2, 2, -4, 4].map((o) => ({ x: at.x + along[0] * o * (b.w > 12 || b.d > 12 ? 1 : 0.5), z: at.z + along[1] * o * (b.w > 12 || b.d > 12 ? 1 : 0.5) }));
+        for (let i = 0; i < n; i++) { const sp = spots[i]; const q = add('recruit', sp.x, sp.z); q.station = { x: q.x, z: q.z }; }
       }
     }
     for (let i = 0; i < t.guards; i++) {

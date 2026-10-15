@@ -42,6 +42,7 @@ import { Markers, RING } from './render/markers.js';
 import { CameraRig } from './ui/cameraRig.js';
 import { screenToGround, pickPeople, peopleInRect } from './ui/picking.js';
 import { faceIcon } from './ui/faces.js';
+import { Labels } from './ui/labels.js';
 import { ask, confirmBox, toast } from './ui/dialog.js';
 
 /* global __BUILD__, __BUILD_TIME__ */
@@ -63,7 +64,8 @@ document.addEventListener('touchmove', (e) => { if (!e.target.closest('#sheetBod
 const canvas = $('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.18;
+const BASE_EXPOSURE = 1.18;
+renderer.toneMappingExposure = BASE_EXPOSURE * (settings.brightness || 1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.info.autoReset = false;
@@ -80,6 +82,7 @@ const baseView = new BaseView(scene);
 const weatherView = new WeatherView(scene, WEATHER_CFG.particles.high);
 const cacheView = new CacheView(scene);
 const rig = new CameraRig(camera, canvas);
+const labels = new Labels(document.getElementById('labels'));
 
 let world = createWorld(WORLD.seed); // タイトル背景にも使う
 const selected = new Set();  // 選択中の仲間の id
@@ -719,9 +722,16 @@ function sheetSettings(body) {
     <h3>画質</h3>
     <div class="row" id="qRow">${['auto', 'low', 'mid', 'high'].map((k) => `<button class="btn ${settings.quality === k ? 'on' : ''}" data-q="${k}">${k === 'auto' ? '自動' : QUALITY[k].label}</button>`).join('')}</div>
     <div class="note">現在：${QUALITY[qName].label}（解像度上限 ${q.dprCap}倍・影 ${q.shadows ? 'あり' : 'なし'}・描画距離 ${q.viewChunks * WORLD.chunkSize}m）</div>
+    <h3>明るさ</h3>
+    <div class="row" id="briRow">${[[0.85, '暗め'], [1, '標準'], [1.2, '明るめ'], [1.45, '最大']].map(([v, l]) => `<button class="btn ${Math.abs((settings.brightness || 1) - v) < 0.01 ? 'on' : ''}" data-bri="${v}">${l}</button>`).join('')}</div>
+    <div class="note">夜の明るさ</div>
+    <div class="row" id="nightRow">${[[0, '暗い'], [1, '普通'], [2, '明るい']].map(([v, l]) => `<button class="btn ${(settings.nightLift ?? 1) === v ? 'on' : ''}" data-night="${v}">${l}</button>`).join('')}</div>
+    <h3>頭上の名札</h3>
+    <div class="row" id="lblRow">${[['role', '役割のある人'], ['all', '全員'], ['off', 'なし']].map(([v, l]) => `<button class="btn ${(settings.labels || 'role') === v ? 'on' : ''}" data-lbl="${v}">${l}</button>`).join('')}</div>
     <h3>表示と操作</h3>
     <div class="row">
       <button class="btn ${settings.dynRes ? 'on' : ''}" id="dynBtn">解像度の自動調整</button>
+      <button class="btn ${settings.fpsCap === 30 ? 'on' : ''}" id="capBtn">省電力（30fps）</button>
       <button class="btn ${settings.debug ? 'on' : ''}" id="dbgBtn">デバッグ表示</button>
     </div>
     <div class="row" style="margin-top:8px">
@@ -754,9 +764,13 @@ function sheetSettings(body) {
     };
   });
   $('dynBtn').onclick = () => { settings.dynRes = !settings.dynRes; dyn.enabled = settings.dynRes; if (!dyn.enabled) { dyn.scale = 1; resize(); } saveSettings(settings); renderSheet(); };
+  $('capBtn').onclick = () => { settings.fpsCap = settings.fpsCap === 30 ? 60 : 30; saveSettings(settings); toast(settings.fpsCap === 30 ? '30fpsに抑えます（電池が長持ちします）' : 'fpsの上限を解除しました'); renderSheet(); };
   $('dbgBtn').onclick = () => { settings.debug = !settings.debug; saveSettings(settings); renderSheet(); };
   $('vibBtn').onclick = () => { settings.vibrate = !settings.vibrate; saveSettings(settings); vibrate(30); renderSheet(); };
   $('fsBtn').onclick = tryFullscreen;
+  body.querySelectorAll('[data-bri]').forEach((b) => { b.onclick = () => { settings.brightness = +b.dataset.bri; renderer.toneMappingExposure = BASE_EXPOSURE * settings.brightness; saveSettings(settings); renderSheet(); }; });
+  body.querySelectorAll('[data-night]').forEach((b) => { b.onclick = () => { settings.nightLift = +b.dataset.night; saveSettings(settings); renderSheet(); }; });
+  body.querySelectorAll('[data-lbl]').forEach((b) => { b.onclick = () => { settings.labels = b.dataset.lbl; saveSettings(settings); renderSheet(); }; });
   $('sndBtn').onclick = () => { settings.sound = !settings.sound; setAudio(settings.sound, settings.volume); saveSettings(settings); if (settings.sound) play('select'); renderSheet(); };
   body.querySelectorAll('[data-vol]').forEach((b) => { b.onclick = () => { settings.sound = true; settings.volume = +b.dataset.vol; setAudio(true, settings.volume); saveSettings(settings); play('select'); renderSheet(); }; });
   body.querySelectorAll('[data-raid]').forEach((b) => { b.onclick = () => { world.raidFreq = b.dataset.raid; resetRaidSchedule(world); toast(`拠点への襲撃：${RAID_FREQ[world.raidFreq].label}`); renderSheet(); }; });
@@ -808,9 +822,12 @@ let last = performance.now();
 let elapsed = 0, uiTimer = 0, sheetRefresh = 0;
 const ringItems = [], destItems = [];
 
+const roofPts = [];
 function loop(now) {
   if (document.hidden) return; // 描画停止（復帰時に onShow から再開）
   requestAnimationFrame(loop);
+  // 省電力：30fps に抑える（1フレームおきに描く）
+  if (settings.fpsCap === 30 && now - last < 1000 / 30 - 4) return;
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   elapsed += dt;
@@ -821,13 +838,15 @@ function loop(now) {
   rig.update(dt);
   focus.copy(rig.target);
   const wx = running ? weatherInfo(world) : null;
-  const k = atmosphere.update(world.hour, focus, camera.position, q.fogFar, rig.dist, wx);
+  const k = atmosphere.update(world.hour, focus, camera.position, q.fogFar, rig.dist, wx, settings.nightLift ?? 1);
   weatherView.update(world.timeScale > 0 || !running ? dt : dt * 0.15, wx, focus);
   if (running) cacheView.update(world, focus, dt);
   terrain.update(focus, k.fog, running ? 2 : 6);
-  towns.update(focus, q.fogFar + rig.dist + 60);
+  roofPts.length = 0; roofPts.push(focus);
+  if (running) for (const id of selected) { const p = personById(world, id); if (p) roofPts.push(p); }
+  towns.update(focus, q.fogFar + rig.dist + 60, roofPts);
   world.focus = focus;
-  baseView.update(world, elapsed);
+  baseView.update(world, elapsed, roofPts);
   if (buildMode) updateBuildPreview();
   humans.update(world.people, focus, elapsed);
   if (world.events?.length) { playEvents(world.events, focus); effects.spawn(world.events); world.events.length = 0; }
@@ -854,11 +873,15 @@ function loop(now) {
 
   renderer.info.reset();
   renderer.render(scene, camera);
+  if (running) {
+    const pl = partyOf(world).find((m) => m.state !== 'dead') || { faction: 'player', state: 'ok', x: 0, z: 0 };
+    labels.update(camera, world.people, focus, rig.dist, settings.labels || 'role', (o) => hostile(o, pl), window.innerWidth, window.innerHeight, (o) => towns.hiddenInside(o));
+  }
 
   stats.push(dt);
   if (running) {
     if (probe && !probe.done) probe.update(dt, (name) => applyQuality(name));
-    else if (dyn.update(dt, stats.fps)) resize();
+    else if (dyn.update(dt, settings.fpsCap === 30 ? Math.min(60, stats.fps * 2) : stats.fps)) resize();
     if (now - lastAutosave > SAVE.autosaveInterval * 1000) autosave();
   }
 
@@ -1402,4 +1425,4 @@ function boot() {
 boot();
 
 // 自動テスト用
-window.__game = { get world() { return world; }, rig, renderer, terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, orderBind, orderCarry, orderAttack, talk, openMap, openSheet, enterBuild, exitBuild, placeBuilding, snapPos, ensureBase, setBaseSub: (v) => { baseSub = v; }, serializeNow: () => serialize(world, cameraState(), BUILD.build), pick: (x, y) => pickPeople(camera, world.people, x, y).length, closeSheet, ph6: { setWeather, weatherInfo, cachesNear, cacheState, orderSearch, trafficMarks, ensureRaid, raidCountdownHours, baseScore, get pendingTalk() { return pendingTalk; }, get talkSession() { return talkSession; } } };
+window.__game = { get world() { return world; }, rig, renderer, atmosphere, towns, orderMoveTo: (x, z) => moveSelectedTo(x, z), terrain, settings, BUILD, selected, camera, addLog: (t) => addLog(world, t), debug, openPerson, orderTreat, orderRest, orderBind, orderCarry, orderAttack, talk, openMap, openSheet, enterBuild, exitBuild, placeBuilding, snapPos, ensureBase, setBaseSub: (v) => { baseSub = v; }, serializeNow: () => serialize(world, cameraState(), BUILD.build), pick: (x, y) => pickPeople(camera, world.people, x, y).length, closeSheet, ph6: { setWeather, weatherInfo, cachesNear, cacheState, orderSearch, trafficMarks, ensureRaid, raidCountdownHours, baseScore, get pendingTalk() { return pendingTalk; }, get talkSession() { return talkSession; } } };

@@ -6,6 +6,10 @@ const DEFAULTS = {
   dynRes: true,
   debug: true,          // Phase 0 は検証用に既定でオン
   vibrate: true,
+  labels: 'role',       // 頭上の名札：all（全員）・role（役割のある人）・off
+  brightness: 1,        // 全体の明るさ（露出の倍率）
+  nightLift: 1,         // 夜の明るさ 0〜2
+  fpsCap: 60,           // 30 にすると省電力
   sound: true,          // 効果音（Phase 6）
   volume: 0.7,
 };

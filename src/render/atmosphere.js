@@ -86,8 +86,20 @@ export class Atmosphere {
   }
 
   // hour: 0..24, focus: 影を落とす中心（カメラ注視点）, fogFar: 画質ごとの霧距離
-  update(hour, focus, cameraPos, fogFar, camDist = 40, weather = null) {
+  update(hour, focus, cameraPos, fogFar, camDist = 40, weather = null, nightLift = 1) {
     const k = sampleKeys(hour);
+    // 夜の明るさ（設定）：月明かりと空の照り返しを強め、霧を明るくする
+    if (nightLift > 0) {
+      const nf = Math.max(0, Math.min(1, (1.4 - k.sunI) / 0.9)) * nightLift; // 0〜2
+      const a = Math.min(1, 0.3 * nf);
+      k.hemiI += 0.55 * nf;
+      k.sunI += 0.35 * nf;
+      k.sky.lerp(tmpB.setHex(0x9aa6c8), a);
+      k.ground.lerp(tmpB.setHex(0x8a7c66), a);
+      k.sun.lerp(tmpB.setHex(0xb8c4e0), a);
+      k.fog.lerp(tmpB.setHex(0x56627c), Math.min(1, 0.28 * nf));
+      k.fogK += 0.15 * nf;
+    }
     // 天候：霧を濃く・色を寄せ・日差しを弱める
     if (weather && weather.i > 0.001 && weather.def.tint) {
       const wi = weather.i;

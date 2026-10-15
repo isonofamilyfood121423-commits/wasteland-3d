@@ -16,7 +16,7 @@ export const WEATHER = {
     fogMul: 0.55, tint: 0x7f8a6c, sunMul: 0.5, sight: 0.75,
     particle: { color: 0xb8c79a, len: 1.4, speed: 3, fall: 18, wind: [0.2, 0.1] },
     // 雨に打たれた部位が少しずつ傷む。小屋の中にいれば平気。外套・頭の装備で軽くなる
-    damagePerHour: 14, floor: 0.4, outerMul: 0.5, headMul: 0.75, raceMul: { sabibone: 1.5 },
+    damagePerHour: 10, floor: 0.5, outerMul: 0.5, headMul: 0.75, raceMul: { sabibone: 1.5 },
   },
   ashfall: {
     label: '灰降り', region: 'ash', chance: 0.4, hours: [1.5, 4],
